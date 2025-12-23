@@ -35,19 +35,16 @@ This part of the pre-configuration of the downloader, it can be change. Each par
 * MAX_RETRIES - No of times the downloader can retry on a link (subject to change)
 * RETRY_DELAY - The delay between each retry (subject to change)
 ======================================================================================================= """
-
 SUCCESS_LOG = r"log\success.log" 
 FAILED_LOG = r"log\failed.log"
 ERROR_LOG = r"log\error.log"
 MAX_RETRIES = 5
 RETRY_DELAY = 20
 
-
 os.makedirs("log", exist_ok=True)
 """=========================================== Logger ===========================================
 Initialize the log fies before write
 """
-
 logger = logging.getLogger("Spotify Downloader")
 logger.setLevel(logging.INFO)
 log_format = logging.Formatter("%(asctime)s - %(levelname)s - %(funcName)s - %(message)s")  
@@ -77,7 +74,6 @@ errors_log.setFormatter(log_format)
 logger.addHandler(success_downloads)
 logger.addHandler(failed_downloads)
 logger.addHandler(errors_log)
-
 
 """ =========================================== The Downloader Class =========================================== """
 class Downloader:
@@ -669,8 +665,7 @@ def main():
     """
     Main function to run the Spotify Downloader
     """
-    downloader = Downloader()
-    
+    downloader = Downloader() 
     while True:
         print("\n" + "="*80)
         print("INTERACTIVE SPOTIFY DOWNLOADER")
@@ -723,7 +718,6 @@ def main():
             if cont not in ['y', 'yes']:
                 print("\nThank you for using Spotify Downloader. Goodbye!")
                 break
-
 
 if __name__ == "__main__":
     # First check if spotdl is available
