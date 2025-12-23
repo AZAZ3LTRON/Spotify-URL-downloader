@@ -8,7 +8,9 @@ However the downloader supports the highest version of the spotdl library (curre
 
 There are two files in this repo:
 - base_downloader : A basic downloader that downloads links in a text file. Simple and easy to understand.
-- interactive downloader: Has more functionality than the base downloader, can work with or without a Spotify account
+- interactive_downloader: Has more functionality than the base downloader, can work with or without a Spotify account
+- gui_downloader: Provides a User interface for the interactive downloader (done with QtPy5)
+- web_downloader: Connects downloader to the web using Flask (coming soon)
 
 Each file has comments to help out with understanding the process behind the program. 
 
