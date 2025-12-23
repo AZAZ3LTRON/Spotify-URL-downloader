@@ -189,7 +189,7 @@ class Downloader:
             
         self.__output_dir.mkdir(parents=True, exist_ok=True)
         
-    def download_track_album(self):
+    def download_track(self):
         """
         Download a single track
         """
@@ -698,46 +698,49 @@ def main():
         print("INTERACTIVE SPOTIFY DOWNLOADER")
         print("="*80)
         print("Select an option:")
-        print("1. Download Track or Album")
-        print("2. Download Playlist")
-        print("3. Download from Text File")
-        print("4. Search and Download Song")
-        print("5. Download User Playlists (Requires Spotify Account)")
-        print("6. Download Liked Songs (Requires Spotify Account)")
-        print("7. Download Saved Albums (Requires Spotify Account)")
-        print("8. Check/Install spotdl")
-        print("9. Show spotdl Help")
-        print("10. Show Program Info")
-        print("11. Exit")
+        print("1. Download Track")
+        print("2. Download Album")
+        print("3. Download Playlist")
+        print("4. Download from Text File")
+        print("5. Search and Download Song")
+        print("6. Download User Playlists (Requires Spotify Account)")
+        print("7. Download Liked Songs (Requires Spotify Account)")
+        print("8. Download Saved Albums (Requires Spotify Account)")
+        print("9. Check/Install spotdl")
+        print("10. Show spotdl Help")
+        print("11. Show Program Info")
+        print("12. Exit")
         print("="*80)
         
         choice = input("\nEnter your choice (1-11): ").strip()
         
         if choice == "1":
-            downloader.download_track_album()
+            downloader.download_track()
         elif choice == "2":
-            downloader.download_playlist()
+            downloader.download_album()
         elif choice == "3":
-            downloader.download_from_file()
+            downloader.download_playlist()
         elif choice == "4":
-            downloader.search_a_song()
+            downloader.download_from_file()
         elif choice == "5":
-            downloader.download_user_playlist()
+            downloader.search_a_song()
         elif choice == "6":
-            downloader.download_user_liked_songs()
+            downloader.download_user_playlist()
         elif choice == "7":
-            downloader.download_user_saved_albums()
+            downloader.download_user_liked_songs()
         elif choice == "8":
-            downloader.check_spotdl()
+            downloader.download_user_saved_albums()
         elif choice == "9":
-            downloader.show_spotdl_help()
+            downloader.check_spotdl()
         elif choice == "10":
-            downloader.program_info()
+            downloader.show_spotdl_help()
         elif choice == "11":
+            downloader.program_info()
+        elif choice == "12":
             print("\nThank you for using Spotify Downloader. Goodbye!")
             break
         else:
-            print("Invalid choice. Please enter a number between 1 and 11.")
+            print("Invalid choice. Please enter a number between 1 and 12.")
         
         # Ask if user wants to continue
         if choice != "11":
