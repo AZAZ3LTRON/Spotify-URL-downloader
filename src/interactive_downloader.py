@@ -35,8 +35,9 @@ This part of the pre-configuration of the downloader, it can be change. Each par
 * MAX_RETRIES - No of times the downloader can retry on a link (subject to change)
 * RETRY_DELAY - The delay between each retry (subject to change)
 ======================================================================================================= """
-SUCCESS_LOG = r"log\success.log" 
-FAILED_LOG = r"log\failed.log"
+USER_CONSOLE = r"log.console.log"
+SUCCESS_LOG = r"log\successes.log" 
+FAILED_LOG = r"log\failure.log"
 ERROR_LOG = r"log\error.log"
 MAX_RETRIES = 5
 RETRY_DELAY = 20
@@ -45,35 +46,58 @@ os.makedirs("log", exist_ok=True)
 """=========================================== Logger ===========================================
 Initialize the log fies before write
 """
-logger = logging.getLogger("Spotify Downloader")
-logger.setLevel(logging.INFO)
-log_format = logging.Formatter("%(asctime)s - %(levelname)s - %(funcName)s - %(message)s")  
 
-# Console Handler
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(log_format)
-logger.addHandler(console_handler)
+successful_downloads = logging.getLogger("successful_downloads")
+failed_downloads = logging.getLogger("failed_downloads")
+error_downloads = logging.getLogger("error_downloads")
+console_logger = logging.getLogger("console")
 
-# Logs only successful downloads
-success_downloads = logging.FileHandler(SUCCESS_LOG, encoding='utf-8')
-success_downloads.setLevel(logging.INFO)
-success_downloads.setFormatter(log_format)
-
-# Logs only failed downloads
-failed_downloads = logging.FileHandler(FAILED_LOG, encoding='utf-8')
+# Set Levels
+successful_downloads.setLevel(logging.INFO)
 failed_downloads.setLevel(logging.INFO)
-failed_downloads.setFormatter(log_format)
+error_downloads.setLevel(logging.ERROR)
+console_logger.setLevel(logging.INFO, logging.ERROR)
 
-# Logs only error in download process
-errors_log = logging.FileHandler(ERROR_LOG, encoding='utf-8')
-errors_log.setLevel(logging.ERROR)
-errors_log.setFormatter(log_format)
+# Disable propagation to avoid duplicate logging
+successful_downloads.propagate = False
+failed_downloads.propagate = False
+error_downloads.propagate = False
+console_logger.propagate = False
 
-# Add handlers to logger
-logger.addHandler(success_downloads)
-logger.addHandler(failed_downloads)
-logger.addHandler(errors_log)
+# Formats
+log_format = logging.Formatter("%(asctime)s - %(message)s")
+error_format = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+# Success logger - only to success.log file
+success_handler = logging.FileHandler(SUCCESS_LOG, encoding='utf-8')
+success_handler.setLevel(logging.INFO)
+success_handler.setFormatter(log_format)
+successful_downloads.addHandler(success_handler)
+
+# Failed logger - only to failed.log file
+failed_handler = logging.FileHandler(FAILED_LOG, encoding='utf-8')
+failed_handler.setLevel(logging.INFO)
+failed_handler.setFormatter(log_format)
+failed_downloads.addHandler(failed_handler)
+
+# Error logger - only to error.log file
+error_handler = logging.FileHandler(ERROR_LOG, encoding='utf-8')
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(error_format)
+error_downloads.addHandler(error_handler)
+
+# Console logger for user feedback
+console_file_handler = logging.FileHandler(USER_CONSOLE, encoding='utf-8')
+console_file_handler.setLevel(logging.INFO)
+console_file_handler.setFormatter(log_format)
+console_file_handler = logging.StreamHandler()
+console_logger.addHandler(console_file_handler)
+
+# Stream handler
+console_stream_handler = logging.StreamHandler()
+console_stream_handler.setLevel(logging.INFO, )
+console_stream_handler.setFormatter(log_format)
+console_logger.addHandler(console_stream_handler)
 
 """ =========================================== The Downloader Class =========================================== """
 class Downloader:
@@ -92,7 +116,25 @@ class Downloader:
         self.__bitrate = "320k"
         self.__audio_format = "mp3"
         self.__filepath = r"links/spotify_links.txt"
+        self.__lyrics_provider = None
+   
+    """ Logger functions"""
+    def log_success(self, message: str):
+        """ Log successful downloads only to success.log"""
+        successful_downloads.info(message)
+        console_logger.info(f"{message}")
+        
+    def log_failure(self, message: str):
+        """ Log failed downloads only to failed.log"""
+        failed_downloads.info(message)
+        console_logger.info(f"{message}")        
     
+    def log_errors(self, message: str, exc_info=False):
+        """Log errors only to error.log"""
+        error_downloads.error(message, exc_info=exc_info)
+        console_logger.error(f"{message}")
+    
+    """ Required"""
     def run_download(self, url: str, output_dir: Path, additional_args=None):
         """
         Method to run Spotdl's download command
@@ -106,6 +148,8 @@ class Downloader:
             "--bitrate", self.__bitrate,
             "--format", self.__audio_format,
         ]
+        if self.__lyrics_provider:
+            command.extend(["--lyrics", self.__lyrics_provider])
         
         if additional_args:
             command.extend(additional_args)
@@ -125,7 +169,7 @@ class Downloader:
              # Error Handling for specific errors during download process ----------------------------
             # ----- NON - RETRYABLE ERRORS -------------------
             if "TypeError: expected string or bytes-like object, got 'NoneType'" in stderr:
-                logger.error(f"{url} - Metadata TypeError (NoneType)")
+                self.log_failure(f"{url} - Metadata TypeError (NoneType)")
                 # Mark as non-retryable by returning a special object
                 return type('obj', (object,), {
                     'returncode': 100,  # Custom return code for non-retryable
@@ -134,7 +178,7 @@ class Downloader:
                 })()
             
             if "LookupError: No results found for song:" in stderr:
-                logger.error(f"{url} - No results found")
+                self.log_failure(f"{url} - No results found")
                 # Mark as non-retryable
                 return type('obj', (object,), {
                     'returncode': 101,  # Custom return code for no results
@@ -144,12 +188,12 @@ class Downloader:
 
             # ------- RETRYABLE ERRORS -----------
             if "AudioProviderError" in stderr:
-                logger.warning(f"{url} - YT-DLP audio provider error")
+                self.log_failure(f"{url} - YT-DLP audio provider error")
                 # This will be retried normally since we raise the exception
             # -------------------------------------------------------------
             
             # For other errors, log and return the exception
-            logger.error(f"Command failed for {url}: {e}")
+            self.log_errors(f"Command failed for {url}: {e}")
             return e
             
     def get_user_preferences(self):
@@ -180,6 +224,26 @@ class Downloader:
                 break
             print("Invalid format. Please choose from the specified formats.")
             
+        # Handle downloaded of lyrics
+        while True:  
+            lyrics_input = input("Would you like lyrics with the song (Y/N, default:N)").strip().lower()
+            if not lyrics_input:
+                self.__lyrics_provider = None
+                break
+            elif lyrics_input == "Y":
+                lyrics_provider_input = input("Which provider will you like to take from").strip().lower()
+                
+                if not lyrics_provider_input:
+                    self.__lyrics_provider = "genius"
+                elif lyrics_provider_input in ["genius", "musixmatch", "azlyrics", "synced"]:
+                    self.__lyrics_provider = lyrics_provider_input
+                else:
+                    console_logger.error("Invalid provider given. Setting default to genius lyrics") 
+                    self.__lyrics_provider = "genius"
+                break
+            else:    
+                print("Please enter 'y' or 'n'. ")
+                        
         # Handle choice of output directory
         output_path = input("Enter output directory (default: Albums): ").strip()
         if output_path:
@@ -188,12 +252,18 @@ class Downloader:
             self.__output_dir = Path("Albums")
             
         self.__output_dir.mkdir(parents=True, exist_ok=True)
-        
+                    
+    """ Download functions"""
     def download_track(self):
         """
         Download a single track
         """
+        console_logger.info("\n === Single Track Download === ")
         url = input("Enter Spotify track url:- ").strip()
+        
+        if not url:
+            console_logger.error("No URL provided")
+            return False
         
         # Get user preferences
         self.get_user_preferences()
@@ -208,29 +278,33 @@ class Downloader:
             
             if hasattr(result, 'returncode'):
                 if result.returncode == 100: # Metadat TypeError
-                    logger.error(f"Non -retryable error for {url}: Metadata TypeError")
+                    self.log_failure(f"Non -retryable error for {url}: Metadata TypeError")
                     return False
                 elif result.returncode == 101: # No results found
-                    logger.error(f"Non -retryable error for {url}: No results found")
+                    self.log_failure(f"Non -retryable error for {url}: No results found")
                     return False
                 
             if isinstance(result, subprocess.CompletedProcess) and result.returncode == 0:
-                logger.info(f"Successfully downloaded: {url}")
+                self.log_success(f"Successfully downloaded: {url}")
                 return True
             elif attempt < MAX_RETRIES:
-                logger.warning(f"Download failed. Retrying in {RETRY_DELAY} seconds...")
+                console_logger.info(f"Retrying in {RETRY_DELAY} seconds...")
                 time.sleep(RETRY_DELAY)
             else:
-                logger.error(f"Failed to download after {MAX_RETRIES} attempts: {url}")
+                self.log_failure(f"Failed to download after {MAX_RETRIES} attempts: {url}")
                 return False
     
     def download_album(self):
         """ Download an album"""
+        
+        console_logger.info("\n === Download Album ===")
         url = input("Enter Spotify album url:- ").strip()
         
-        self.get_user_preferences()
+        if not url:
+            console_logger.error("No URL provided")
+            return False
         
-        #Set the template
+        self.get_user_preferences()
         output_template = str(self.__output_dir / "{artist}/{album}/{title}.{output-ext}")
         
         for attempt in range(1, MAX_RETRIES + 1):
@@ -239,27 +313,31 @@ class Downloader:
             
             if hasattr(result, 'returncode'):
                 if result.returncode == 100:
-                    logger.error(f"Non - retryable error for {url}: Metadata TypeError")
+                    self.log_failure(f"Non - retryable error for {url}: Metadata TypeError")
                     return False
                 elif result.returncode == 101:
-                    logger.error(f"Non-retryable error for {url}: No results found")
+                    self.log_failure(f"Non-retryable error for {url}: No results found")
                     return False
                 
             if isinstance(result, subprocess.CompletedProcess) and result.returncode == 0:
-                logger.info(f"Successful downloaded: {url}")
+                self.log_success(f"Successful downloaded: {url}")
                 return True
             elif attempt < MAX_RETRIES:
-                logger.warning(f"Download failed. Retrying in {RETRY_DELAY} seconds... ")
+                console_logger.info(f"Retrying in {RETRY_DELAY} seconds... ")
                 time.sleep(RETRY_DELAY)
             else:
-                logger.error(f"Failed to download after {MAX_RETRIES} attempts: {url}")
+                self.log_failure(f"Failed to download after {MAX_RETRIES} attempts: {url}")
                 return False
             
     def download_playlist(self):
-        url = input("What track or album will you like to download")
+        console_logger.info("\n ==== Download Playlist ====")
+        url = input("What playlist will you like to download:- ")
+        
+        if not url:
+            console_logger.error("No URL provided.")
+            return False
         
         self.get_user_preferences()
-        
         output_template = str(self.__output_dir / "{playlist}/{title}.{output-ext}")
         
         for attempt in range(1, MAX_RETRIES + 1):
@@ -271,65 +349,80 @@ class Downloader:
                 ["--playlist-numbering", "--playlist-retain-track-cover"])
             
             if hasattr(result, 'returncode'):
-                if result.returncode == 100: # Metadat TypeError
-                    logger.error(f"Non -retryable error for {url}: Metadata TypeError")
+                if result.returncode == 100: # Metadata TypeError
+                    self.log_failure(f"Non -retryable error for {url}: Metadata TypeError")
                     return False
                 elif result.returncode == 101: # No results found
-                    logger.error(f"Non -retryable error for {url}: No results found")
+                    self.log_failure(f"Non -retryable error for {url}: No results found")
                     return False
+                
             if isinstance(result, subprocess.CompletedProcess) and result.returncode == 0:
-                logger.info(f"Successfully downloaded: {url}")
+                self.log_success(f"Successfully downloaded: {url}")
                 return True
             elif attempt < MAX_RETRIES:
-                logger.warning(f"Download failed. Retrying in {RETRY_DELAY} seconds...")
+                console_logger.info(f"Retrying in {RETRY_DELAY} seconds...")
                 time.sleep(RETRY_DELAY)
             else:
-                logger.error(f"Failed to download after {MAX_RETRIES} attempts: {url}")
+                self.log_failure(f"Failed to download after {MAX_RETRIES} attempts: {url}")
                 return False
 
     def download_from_file(self):
         """ 
         Download various links from a file
         """
-        
-        filepath = input("Enter the directory of the file").strip()
+        console_logger.info("\n ==== Download from text file ==== ")
+        filepath = input("Enter the directory of the file:- ").strip()
         
         if not filepath or not os.path.exists(filepath):
-            logger.error(f"File not found: {filepath}")
+            self.log_errors(f"File not found: {filepath}")
             return False
+        
         self.get_user_preferences()
         
         try:
             with open(filepath, 'r') as file:
                 file_lines = [line.rstrip() for line in file if line.strip()]
         except FileNotFoundError:
-            logger.error(f" File not found: {filepath}")
+            self.log_errors(f" File not found: {filepath}")
             return False
         except Exception as e:
-            logger.error(f"Error reading the file: {e}")
+            self.log_errors(f"Error reading the file: {e}")
             return False
+        
         if not file_lines:
-            logger.error("No URLs found in the text file")
+            self.log_errors("No URLs found in the text file")
             return False
         
         success_count = 0 # How many urls download successfully
         failed_count = 0 # How many urls failed to download
+        total_lines = len(file_lines)
         
-        for i, url in enumerate(file_lines, 1):
-            logger.info(f"Processing URL {i}/{len(file_lines)}: {url}")
-            
-            clean_url = url.split('#')[0].strip()
+        console_logger.info(f"Found {total_lines} URLs found in the file")
+        
+        for i, line in enumerate(file_lines, 1):
+            # Clean the URL (remove comments)
+            clean_url = line.split('#')[0].strip()
+        
+            if not line:
+                console_logger.info(f"Line {i}: Empty line, skipping")
+                continue
             
             # Check if URL is already downloaded
-            if url.endswith("# DOWNLOADED"):
-                logger.info(f"Skipping already downloaded URL: {url}")
+            if line.endswith("# DOWNLOADED"):
+                console_logger.info(f"Skipping url- Already downloaded")
                 success_count += 1
                 continue
+            
+            # Check if URL is marked failed
+            if line.endswith("# FAILED"):
+                console_logger.info(f"Previously marked as failed, will retry")
+                failed_count += 1
+
                 
-            if "playlist" in url.lower():
+            if "playlist" in clean_url.lower():
                 output_template = str(self.__output_dir / "{playlist}/{title}.{output-ext}")
                 additional_args = ["--playlist-numbering", "--playlist-retain-track-cover"]
-            elif "album" in url.lower():
+            elif "album" in clean_url.lower():
                 output_template = str(self.__output_dir / "{artist}/{album}/{title}.{output-ext}")
                 additional_args = None
             else:
@@ -338,19 +431,20 @@ class Downloader:
                 
             success = False
             non_retry_error = False
+            
             for attempt in range(1, MAX_RETRIES + 1):
-                print(f"Downloading ({attempt}/{MAX_RETRIES} tries): {url}")
+                console_logger.info(f"Downloading ({attempt}/{MAX_RETRIES} tries): {clean_url}")
                 
                 try:
-                    result = self.run_download(url, output_template, additional_args)
+                    result = self.run_download(clean_url, output_template, additional_args)
                     
                     if hasattr(result, 'returncode'):
                         if result.returncode == 100: # Metadata TypeError
-                            logger.error(f"Non -retryable error for {url}: Metadata TypeError")
+                            self.log_failure(f"Non -retryable error for {clean_url}: Metadata TypeError")
                             non_retry_error = True
                             break
                         elif result.returncode == 101: # No results found
-                            logger.error(f"Non -retryable error for {url}: No results found")
+                            self.log_failure(f"Non -retryable error for {clean_url}: No results found")
                             non_retry_error = True
                             break
                         
@@ -360,42 +454,33 @@ class Downloader:
                     elif attempt < MAX_RETRIES:
                         time.sleep(RETRY_DELAY)
                 except Exception as e:
-                    logger.error(f"Exception during the download {e}")
+                    self.log_errors(f"Exception during the download {e}")
                     
             if success:
                 success_count += 1
-                logger.info(f"Successfully download {url}")
-                
-                if "#" in url:
-                    # Keep existing comments before # and add DOWNLOADED
-                    parts = url.split('#')
-                    file_lines[i-1] = f"{parts[0].strip()} # DOWNLOADED"
-                else:
-                    file_lines[i-1] = f"{clean_url} # DOWNLOADED"
+                self.log_success(f"Successfully downloaded {clean_url}")
+                # Update line in file
+                file_lines[i-1] = f"{clean_url} # DOWNLOADED"
             else:
                 failed_count += 1
-                logger.error(f"Failed download {url}")
-            if "#" in url:
-                parts = url.split('#')
-                file_lines[i-1] = f"{parts[0].strip()} # FAILED"
-            else:
-                file_lines[i-1] = f"{clean_url} # FAILED"
+                self.log_failure(f"Failed download {clean_url}")
+                 # Update line to mark as failed (but keep previous status if exists)
+                if "# DOWNLOADED" not in file_lines[i-1].upper():
+                    file_lines[i-1] = f"{clean_url} # FAILED"
         
         try: 
-            with open(filepath, 'w') as file:
+            with open(filepath, 'w', encoding='utf-8') as file:
                 file.write("\n".join(file_lines))    
         except Exception as e:
-            logger.error(f"Error updating the file: {e}") 
-        logger.error(f"Failed to download playlist after {MAX_RETRIES} attempts: {url}")
+            self.log_errors(f"Error updating the file: {e}") 
+        self.log_failure(f"Failed to download playlist after {MAX_RETRIES} attempts: {clean_url}")
         return failed_count == 0
     
     def search_a_song(self):
         """ Search for a song and download"""    
-        
         song_query = input("What is the name of the song you're looking for: ").strip()
 
         self.get_user_preferences()
-        
         output_template = str(self.__output_dir / "{artist}/{album}/{title}.{output-ext)")
         
         for attempt in range(1, MAX_RETRIES + 1):
@@ -405,20 +490,20 @@ class Downloader:
             
             if hasattr(result, 'returncode'):
                 if result.returncode == 100: # Metadat TypeError
-                    logger.error(f"Non -retryable error for {song_query}: Metadata TypeError")
+                    self.log_failure(f"Non -retryable error for {song_query}: Metadata TypeError")
                     return False
                 elif result.returncode == 101: # No results found
-                    logger.error(f"Non -retryable error for {song_query}: No results found")
+                    self.log_failure(f"Non -retryable error for {song_query}: No results found")
                     return False
                 
             if isinstance(result, subprocess.CompletedProcess) and result.returncode == 0:
-                logger.info(f"Successfully downloaded: {song_query}")
+                self.log_success(f"Successfully downloaded: {song_query}")
                 return True
             elif attempt < MAX_RETRIES:
-                logger.warning(f"Download failed. Retrying in {RETRY_DELAY} seconds....")
+                console_logger.info(f"Retrying in {RETRY_DELAY} seconds....")
                 time.sleep(RETRY_DELAY)
             else:
-                logger.error(f"Failed to download after {MAX_RETRIES} attempts: {song_query}")
+                self.log_failure(f"Failed to download after {MAX_RETRIES} attempts: {song_query}")
                 return False   
 
     def download_user_playlist(self):
@@ -453,33 +538,33 @@ class Downloader:
             # Error handling for specific errors during download process
             # ------------ NON -RETRYABLE ERRORS ------------
             if "TypeError: expected string or bytes-line object, got 'NoneType'" in stderr:
-                logger.error("Metadata Type Error")
+                self.log_failure("Metadata Type Error")
                 return False
             
             if "LookupError: No results found for song:" in stderr:
-                logger.error("No results found")
+                self.log_failure("No results found")
                 return False
             
             # ------------ RETRYABLE ERROR ------------
             if "AudioProviderError" in stderr:
-                logger.warning(f"YT-DLP audio provider error")
+                self.log_errors(f"YT-DLP audio provider error")
             # -----------------------------------------------------------------------------------
 
             if result.stdout:
-                logger.info(f"spotdl output: {result.stdout.strip()}")
+                self.log_success(f"spotdl output: {result.stdout.strip()}")
             
             if result.stderr and not ("AudioProviderError" in stderr):
-                logger.error(f"spotdl stderr: {result.stderr.strip()}")
+                self.log_errors(f"spotdl stderr: {result.stderr.strip()}")
             
             if result.returncode == 0:
-                logger.info("Successfully downloaded user playlists")
+                self.log_success("Successfully downloaded user playlists")
                 return True
             else:
-                logger.error(f"Failed to download user playlists. Return code: {result.returncode}")
+                self.log_failure(f"Failed to download user playlists. Return code: {result.returncode}")
                 return False
             
         except Exception as e:
-            logger.exception(f"Unexpected exception: {e}") 
+            console_logger.info(f"Unexpected exception: {e}") 
             return False
         
     def download_user_liked_songs(self):
@@ -515,33 +600,33 @@ class Downloader:
             # Error handling for specific errors during download process
             # ------------ NON -RETRYABLE ERRORS ------------
             if "TypeError: expected string or bytes-line object, got 'NoneType'" in stderr:
-                logger.error("Metadata Type Error")
+                self.log_failure("Metadata Type Error")
                 return False
             
             if "LookupError: No results found for song:" in stderr:
-                logger.error("No results found")
+                self.log_failure("No results found")
                 return False
             
             # ------------ RETRYABLE ERROR ------------
             if "AudioProviderError" in stderr:
-                logger.warning(f"YT-DLP audio provider error")
+                self.log_errors(f"YT-DLP audio provider error")
             # -----------------------------------------------------------------------------------
 
             if result.stdout:
-                logger.info(f"spotdl output: {result.stdout.strip()}")
+                self.log_success(f"spotdl output: {result.stdout.strip()}")
             
             if result.stderr and not ("AudioProviderError" in stderr):
-                logger.error(f"spotdl stderr: {result.stderr.strip()}")
+                self.log_errors(f"spotdl stderr: {result.stderr.strip()}")
             
             if result.returncode == 0:
-                logger.info("Successfully downloaded user playlists")
+                self.log_success("Successfully downloaded user playlists")
                 return True
             else:
-                logger.error(f"Failed to download user playlists. Return code: {result.returncode}")
+                self.log_errors(f"Failed to download user playlists. Return code: {result.returncode}")
                 return False
             
         except Exception as e:
-            logger.exception(f"Unexpected exception: {e}") 
+            console_logger.info(f"Unexpected exception: {e}") 
             return False
 
     def download_user_saved_albums(self):
@@ -577,42 +662,42 @@ class Downloader:
             # Error handling for specific errors during download process
             # ------------ NON -RETRYABLE ERRORS ------------
             if "TypeError: expected string or bytes-line object, got 'NoneType'" in stderr:
-                logger.error("Metadata Type Error")
+                self.log_failure("Metadata Type Error")
                 return False
             
             if "LookupError: No results found for song:" in stderr:
-                logger.error("No results found")
+                self.log_failure("No results found")
                 return False
             
             # ------------ RETRYABLE ERROR ------------
             if "AudioProviderError" in stderr:
-                logger.warning(f"YT-DLP audio provider error")
+                self.log_errors(f"YT-DLP audio provider error")
             # -----------------------------------------------------------------------------------
 
             if result.stdout:
-                logger.info(f"spotdl output: {result.stdout.strip()}")
+                self.log_success(f"spotdl output: {result.stdout.strip()}")
             
             if result.stderr and not ("AudioProviderError" in stderr):
-                logger.error(f"spotdl stderr: {result.stderr.strip()}")
+                self.log_errors(f"spotdl stderr: {result.stderr.strip()}")
             
             if result.returncode == 0:
-                logger.info("Successfully downloaded user playlists")
+                self.log_success("Successfully downloaded user playlists")
                 return True
             else:
-                logger.error(f"Failed to download user playlists. Return code: {result.returncode}")
+                self.log_errors(f"Failed to download user playlists. Return code: {result.returncode}")
                 return False
             
         except Exception as e:
-            logger.exception(f"Unexpected exception: {e}") 
+            console_logger.info(f"Unexpected exception: {e}") 
             return False
 
     @staticmethod
-    def check_spotdl():
+    def check_spotdl(self):
         """
         Check if spotdl is installed and install it if not
         """
         if shutil.which("spotdl"):
-            logger.info("spotdl is already installed")
+            console_logger.info("spotdl is already installed")
             
             # Check version
             try:
@@ -624,24 +709,24 @@ class Downloader:
                     check=True
                 )
                 version_str = result.stdout.strip()
-                logger.info(f"spotdl version: {version_str}")
+                console_logger.info(f"spotdl version: {version_str}")
                 return True
             except subprocess.CalledProcessError:
-                logger.warning("Could not determine spotdl version")
+                console_logger.warning("Could not determine spotdl version")
                 return True
         else:
-            logger.info("spotdl not found. Installing...")
+            console_logger.warning("spotdl not found. Installing...")
             
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", "spotdl"])
-                logger.info("spotdl installed successfully")
+                console_logger.info("spotdl installed successfully")
                 return True
             except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to install spotdl: {e}")
+                console_logger.info(f"Failed to install spotdl: {e}")
                 return False
     
     @staticmethod     
-    def show_spotdl_help():
+    def show_spotdl_help(self):
         """
         Display spotdl help
         """
@@ -658,7 +743,7 @@ class Downloader:
             print("="*50)
             print(result.stdout)
         except subprocess.CalledProcessError as e:
-            logger.error(f"Could not get spotdl help: {e}")
+            console_logger.info(f"Could not get spotdl help: {e}")
     
     @staticmethod     
     def program_info():
@@ -738,9 +823,9 @@ def main():
             "6": downloader.download_user_playlist,
             "7": downloader.download_user_liked_songs,
             "8": downloader.download_user_saved_albums,
-            "9": Downloader.check_spotdl,
-            "10": Downloader.show_spotdl_help,
-            "11": Downloader.program_info,
+            "9": downloader.check_spotdl,
+            "10": downloader.show_spotdl_help,
+            "11": downloader.program_info,
         }
         
         if choice == "12":
@@ -768,6 +853,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n\nProgram interrupted by user. Goodbye!")
     except Exception as e:
-        logger.exception(f"Unexpected error in main: {e}")
+        console_logger.info(f"Unexpected error in main: {e}")
         print(f"\nAn unexpected error occurred: {e}")
         print("Please check the error log for details.")
