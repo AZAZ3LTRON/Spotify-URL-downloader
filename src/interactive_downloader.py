@@ -23,13 +23,12 @@ import sys
 import os # For directory creation
 import subprocess # To run the spotdl in the background
 import shutil
-import time # Time 
+import time # Time
+from functools import wraps
 from pathlib import Path
 import logging # Logging
-import requests
-import json
 import re # Regex
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import urllib.parse
 
 """ =========================================== Pre Config ===========================================
 This part of the pre-configuration of the downloader, it can be change. Each part is explained below:
@@ -114,7 +113,7 @@ class Downloader:
         self.__filepath = r"links/spotify_links.txt"
         self.__spotdl_version = None
 
-    # Logger Functions
+    # Logger Functions -----------------------------------------------------------------
     def log_success(self, message: str):
         """Logs only successful downloads (to success log)"""
         success_downloads.info(message)
@@ -129,13 +128,14 @@ class Downloader:
         """ Logs only  error in download process (to error log)"""
         error_downloads.error(message, exc_info=exc_info)
         console_logger.error(f"{message}")
-             
+     
+    # Preference getters & helper functions ------------------------------------------------        
     def get_user_preferences(self):
         """ Takes in user input for the download settings """
         
         # Handle choice of bitrate inputs
         while True:
-            bitrate_input = input("What bitrate would you like (8k-320k, default:- 320k): ").strip().lower()
+            bitrate_input = input("What bitrate would you like (8k-320k, default:- 320k):- ").strip().lower()
             
             if not bitrate_input:
                 self.__bitrate = "320K"
@@ -148,7 +148,7 @@ class Downloader:
             
         # Handles choice of audio format
         while True:
-            audio_format_input = input("What format do you wish to download in:(mp3, flac, ogg, opus, m4a, wav, default mp3): ").strip().lower()
+            audio_format_input = input("What format do you wish to download in:(mp3, flac, ogg, opus, m4a, wav, default mp3):- ").strip().lower()
             if not audio_format_input:
                 self.__audio_format = "mp3"
                 break
@@ -158,7 +158,7 @@ class Downloader:
             print("Invalid format. Please choose from the specified formats.")
             
         # Handle choice of output directory
-        output_path = input("Enter output directory (default: Albums): ").strip()
+        output_path = input("Enter output directory (default: Albums):- ").strip()
         if output_path:
             self.__output_dir = Path(output_path)
         else:
@@ -168,18 +168,21 @@ class Downloader:
     
     def validate_spotify_url(self, url: str) -> bool:
         """ Validate if the URL input is a proper URL"""
+        
         spotify_patterns = [
-            r'^https://open\.spotify\.com/track/[A-Za-z0-9]+',
-            r'^https://open\.spotify\.com/album/[A-Za-z0-9]+',
-            r'^https://open\.spotify\.com/playlist/[A-Za-z0-9]+',
-            r'^spotify:track:[A-Za-z0-9]+',
-            r'^spotify:album:[A-Za-z0-9]+',
-            r'^spotify:playlist:[A-Za-z0-9]+'         
+            r'^https://open\.spotify\.com/(track|album|playlist|artist)/[A-Za-z0-9]+(\?.*)?$',
+            r'^spotify:(track|album|playlist|artist):[A-Za-z0-9]+$',
+            r'^https://open\.spotify\.com/user/[^/]+/playlist/[A-Za-z0-9]+$'
         ]
     
         for pattern in spotify_patterns:
             if re.match(pattern, url):
-                return True
+                try:
+                    parsed = urllib.parse.urlparse(url)
+                    if parsed.scheme in ['http', 'https', 'spotify']:
+                        return True
+                except:
+                    continue
         return False
     
     def extract_spotify_id(self, url: str) -> str:
@@ -267,7 +270,25 @@ class Downloader:
         except Exception as e:
             self.log_error(f"Unexpected error: {e}")
             return e
-        
+
+    # Extra functions to really on (incase of program failure) ----------------------------
+    def rate_limit(calls_per_minute=60):
+        """ Added rate limiter to avoid being blocked """
+        def decorator(func):
+            last_called = [0.0]
+            
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                elapsed_time = time.time() - last_called[0]
+                wait_time = (60.0 / calls_per_minute) - elapsed_time
+                if wait_time > 0:
+                    time.sleep(wait_time)
+                last_called[0] = time.time()
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
+
+    # Main download functions -----------------------------------------------------------
     def download_track(self):
         """ Download a single track """
         print("\n =========== Single Track Download =================")
@@ -276,20 +297,21 @@ class Downloader:
         if not url:
             print("No URL provided")
             return False
-            
+
         # Validate URL
         if not self.validate_spotify_url(url):
             print("Invalid Spotify URL. Please enter a valid Spotify track URL")
             return False
-            
+        
         # Get user preferences
         self.get_user_preferences()
+        print("===========================================================================")
         print(f"Starting Track download: {url}. This may take a few minutes...")
         start_time = time.time()
         output_template = str(self.__output_dir / "{title}.{output-ext}")
             
         for attempt in range(1, MAX_RETRIES + 1):
-            print(f"Downloading Track URL: {attempt}/{MAX_RETRIES}")
+            print(f"===========  Downloading Track URL: Attempt {attempt} of {MAX_RETRIES} =========== ")
             
             result = self.run_download(url, output_template)
             
@@ -336,12 +358,13 @@ class Downloader:
 
         # Get user preferences
         self.get_user_preferences()
-        print(f"Starting Album download. This may take a few minutes")
+        print("===========================================================================")
+        print(f" ============== Starting Album download. This may take a few minutes")
         start_time = time.time()
         output_template = str(self.__output_dir / "{artist}/{album}/{title}.{output-ext}")
         
         for attempt in range(1, MAX_RETRIES + 1):
-            print(f"Downloading Album {attempt}/{MAX_RETRIES}")
+            print(f"============== Downloading Album URL: attempt {attempt} of {MAX_RETRIES} ==============")
             result = self.run_download(url, output_template)
             
             if hasattr(result, 'returncode'):
@@ -384,12 +407,13 @@ class Downloader:
             return False
     
         self.get_user_preferences()
-        print(f"Starting Playlist download. This may take a few minutes")
+        print("===========================================================================")
+        print(f"============== Starting Playlist download. This may take a few minutes")
         start_time = time.time()
         output_template = str(self.__output_dir / "{playlist}/{title}.{output-ext}")
         
         for attempt in range(1, MAX_RETRIES + 1):
-            print(f"Downloading Playlist {attempt}/{MAX_RETRIES}")
+            print(f"============== Downloading Playlist URL: Attempt {attempt}/{MAX_RETRIES} ==============")
             result = self.run_download(
                 url, 
                 output_template,
@@ -446,6 +470,7 @@ class Downloader:
         failed_count = 0 # How many urls failed to download
         
         for i, url in enumerate(file_lines, 1):
+            print("===========================================================================")
             self.log_success(f"Processing URL {i}/{len(file_lines)}: {url}")
             
             clean_url = url.split('#')[0].strip()
@@ -469,7 +494,8 @@ class Downloader:
             success = False
             non_retry_error = False
             for attempt in range(1, MAX_RETRIES + 1):
-                print(f"Downloading ({attempt}/{MAX_RETRIES} tries): {url}")
+                print("===========================================================================")
+                print(f"==============Downloading URL {i}: Attempt {attempt} of {MAX_RETRIES} tries ==============")
                 
                 try:
                     result = self.run_download(url, output_template, additional_args)
@@ -536,16 +562,17 @@ class Downloader:
         output_template = str(self.__output_dir / "{title}.{output-ext}")
         
         for attempt in range(1, MAX_RETRIES + 1):
-            print(f"Search and download attempt {attempt}/{MAX_RETRIES}: {song_query}")
+            print("===========================================================================")
+            print(f"Search and download attempt: {attempt} of {MAX_RETRIES}:")
             result = self.run_download(song_query, output_template)
             
             
             if hasattr(result, 'returncode'):
-                if result.returncode == 100: # Metadat TypeError
-                    self.log_error(f"Non -retryable error for {song_query}: Metadata TypeError")
+                if result.returncode == 100: 
+                    self.log_error(f"Non -retryable error: Metadata TypeError")
                     return False
-                elif result.returncode == 101: # No results found
-                    self.log_error(f"Non -retryable error for {song_query}: No results found")
+                elif result.returncode == 101: 
+                    self.log_error(f"Non -retryable error: No results found")
                     return False
                 
             if isinstance(result, subprocess.CompletedProcess) and result.returncode == 0:
@@ -563,6 +590,7 @@ class Downloader:
                 print("==================================================================")                                
                 return False   
 
+    # Special download functions -------------------------------------------------------
     def download_user_playlist(self):
         """
         Download a user's playlist (requires authentication)
@@ -616,28 +644,31 @@ class Downloader:
             
             if result.returncode == 0:
                 self.log_success("Successfully downloaded user playlists")
+                print("==================================================================")                                
                 return True
             else:
                 self.log_failure(f"Failed to download user playlists. Return code: {result.returncode}")
+                print("==================================================================")                                                
                 return False
             
         except Exception as e:
-            self.log_error(f"Unexpected exception: {e}") 
+            self.log_error(f"Unexpected exception: {e}")
+            print("==================================================================")                                
             return False
         
     def download_user_liked_songs(self):
-        """
-        Download a user's liked songs
-        """
+        """Download a user's liked songs"""
         print("\n=== User Liked Song's Download ===")
         print("Note: This requires Spotify authentication")
         print("This requires a Spotify Account")
         print("You will be redirected to the Spotify website for authorization")
+        print("==================================================================")                                
         
         self.get_user_preferences()
         output_template = str(self.__output_dir / "{title}/{artist}.{output-ext}")
         
         try:
+            print("==================================================================")                                
             print("Downloading the User's Liked Song's from Spotify")
             result = subprocess.run([
                 "spotdl",
@@ -677,19 +708,20 @@ class Downloader:
             
             if result.returncode == 0:
                 self.log_success("Successfully downloaded user playlist")
+                print("==================================================================")                  
                 return True
             else:
                 self.log_failure(f"Failed to download user playlists. Return code: {result.returncode}")
+                print("==================================================================")  
                 return False
             
         except Exception as e:
             self.log_error(f"Unexpected exception: {e}") 
+            print("==================================================================")              
             return False
 
     def download_user_saved_albums(self):
-        """
-        Download a user's saved albums
-        """
+        """ Download a user's saved albums """
         print("\n=== User Playlist Download ===")
         print("Note: This requires Spotify authentication")
         print("This requires a Spotify Account")
@@ -697,7 +729,7 @@ class Downloader:
         
         self.get_user_preferences()
         output_template = str(self.__output_dir / "{artist}/{album}/{title}.{output-ext}")
-        
+        print("==================================================================")
         try:
             print("Downloading the User's Saved Albums")
             result = subprocess.run([
@@ -738,16 +770,19 @@ class Downloader:
                 self.log_failure(f"spotdl stderr: {result.stderr.strip()}")
             
             if result.returncode == 0:
-                self.log_success("Successfully downloaded user playlists")
+                self.log_success("Successfully downloaded user saved albums")
+                print("==================================================================")
                 return True
             else:
-                self.log_failure(f"Failed to download user playlists. Return code: {result.returncode}")
+                self.log_failure(f"Failed to download user saved albums. Return code: {result.returncode}")
+                print("==================================================================")
                 return False
             
         except Exception as e:
             self.log_error(f"Unexpected exception: {e}") 
             return False
 
+    # Spotdl helpers ----------------------------------------------------------------------------
     @staticmethod
     def check_spotdl():
         """
@@ -855,21 +890,25 @@ def display_menu() -> None:
     """
     print(menu)
 
-def main(self):
+def main():
     """Main function to run the Spotify Downloader."""
+    print("==================================================================")
     print("Initializing Spotify Downloader...")
     
     # Check spotdl installation
     if not Downloader.check_spotdl():
+        print("==================================================================")
         print("\nFailed to install spotdl. Please install it manually using:")
         print("pip install spotdl")
         print("Then run the program again.")
+        print("==================================================================")
         return
     
     downloader = Downloader()
     
     while True:
         display_menu()
+        print("==================================================================")
         choice = input("\nEnter your choice (1-12): ").strip()
         
         actions = {
@@ -881,19 +920,21 @@ def main(self):
             "6": downloader.download_user_playlist,
             "7": downloader.download_user_liked_songs,
             "8": downloader.download_user_saved_albums,
-            "9": Downloader.check_spotdl(self),
+            "9": downloader.check_spotdl,
             "10": Downloader.show_spotdl_help,
             "11": Downloader.program_info,
         }
         
         if choice == "12":
             print("\nThank you for using Spotify Downloader. Goodbye!")
+            print("==================================================================")
             break
         
         action = actions.get(choice)
         if action:
             action()
         else:
+            print("==================================================================")
             print("Invalid choice. Please enter a number between 1 and 12.")
             continue
         
@@ -901,6 +942,7 @@ def main(self):
         if choice not in ["10", "11"]:
             cont = input("\nDo you want to perform another operation? (y/n): ").strip().lower()
             if cont not in ['y', 'yes']:
+                print("==================================================================")
                 print("\nThank you for using Spotify Downloader. Goodbye!")
                 break
 
@@ -912,3 +954,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}")
         print("Please check the error log for details.")
+        
