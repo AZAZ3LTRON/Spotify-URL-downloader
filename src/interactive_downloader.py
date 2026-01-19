@@ -1,14 +1,19 @@
 """
 Interactive Playlist/Album/Track Downloader using SpotDL
 
-This is a simple to use downloader that can help in downloading albums/playlist/single tracks etc from Spotfiy
-With the rise of Artificial Intelligence and the music industry rallying to replace artist as well as Spotify 
+With the rise of Artificial Intelligence and the music industry scraping artist work to run in LLMs, Spotify has been the biggest profit from this.
+From the support of ICE, promoting AI Artist on the platform without proper regulations, their exploitative subscriptions fees which they have increased once again, 
+putting out Zionist Advertisement, underpaying artist and Daniel Ek's investment in German military AI company Helsing.
+
+I created this python script to allow you, the user, to download track, albums, personal playlist etc from the Spotify Website. Unfortunately, Spotify have blocked all API request from
+being made due to mass web scrape of their platform by Anna's Archive. If you wish to download from them, you can go to 
+
+The program function is to allow you to download music from Spotify urls.
 
 Its features a:
 - Audio Format choice
 - Download Quality choice
 - Output Directory Choice
-- Zip Downloads choice
 - Metadata Support
 - Organizes albums by artist
 - Mass download support (from text file)
@@ -16,6 +21,8 @@ Its features a:
 - Log failed downloads
 - Log errors in between downloads
 - Retry downloads
+
+Enjoy! 
 """
 
 # Basic Import required
@@ -96,7 +103,7 @@ console_stream_handler.setFormatter(log_format)
 console_logger.addHandler(console_stream_handler)
 
 """ =========================================== The Downloader Class =========================================== """
-class Downloader:
+class Spotify_Downloader:
     def __init__(self):
         """
         Initialize the downloader with default values
@@ -896,7 +903,7 @@ def main():
     print("Initializing Spotify Downloader...")
     
     # Check spotdl installation
-    if not Downloader.check_spotdl():
+    if not Spotify_Downloader.check_spotdl():
         print("==================================================================")
         print("\nFailed to install spotdl. Please install it manually using:")
         print("pip install spotdl")
@@ -904,7 +911,7 @@ def main():
         print("==================================================================")
         return
     
-    downloader = Downloader()
+    downloader = Spotify_Downloader()
     
     while True:
         display_menu()
@@ -921,8 +928,8 @@ def main():
             "7": downloader.download_user_liked_songs,
             "8": downloader.download_user_saved_albums,
             "9": downloader.check_spotdl,
-            "10": Downloader.show_spotdl_help,
-            "11": Downloader.program_info,
+            "10": Spotify_Downloader.show_spotdl_help,
+            "11": Spotify_Downloader.program_info,
         }
         
         if choice == "12":
