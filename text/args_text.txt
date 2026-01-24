@@ -1,9 +1,0 @@
--t mp3                                            -f 'ba[acodec^=mp3]/ba/b' -x --audio-format mp3
-yt-dlp -x --audio-format mp3 --audio-quality 128K "https://music.youtube.com/watch?v=B_HSa1dEL9s&list=OLAK5uy_nMi553Un-V3VCacIvHuLPUgXfEdPmHaP8" --add-metadata --embed-thumbnail
-https://music.youtube.com/watch?v=KwN_f0fTHoE&list=RDAMVMKwN_f0fTHoE
-https://music.youtube.com/playlist?list=OLAK5uy_l8vqOyheJ7cTWMxaOOPGBnceUaGRTIsgo
-https://music.youtube.com/playlist?list=PLqTd0wRQs2Pkk8in4qwGmYywibONOX1yE
-https://music.youtube.com/channel/UCbulh9WdLtEXiooRcYK7SWw
-https://music.youtube.com/browse/MPADUCGexNm_Kw4rdQjLxmpb2EKw
-https://www.youtube.com/playlist?list=PLwTH0P8ZWk70xHzuJ_gNE_8wQ7FDvuGhA
-https://www.youtube.com/watch?v=yB9elf-mecE
