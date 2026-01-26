@@ -125,14 +125,73 @@ class Youtube_Downloader:
         
         The values here are set to default and can be changed later to fit your preference 
         """
-        self.__output_dir = Path("Albums")
+        self.__output_directory = Path("Albums")
         self.__audio_quality = "320k"
         self.__audio_format = "mp3"
         self.__filepath = r"links/youtube_links.txt"
+        self.__configuration_file = "downloader_config.json"
         self.__ytdlp_version = None
         self.__parallel_downloads = MAX_PARALLEL_DOWNLOADS
+    
+        # Load the json file
+        self.load_config()
+    # ===================== Configuration Management =======================
+    def load_config(self):
+        """Load configuration from json file"""
+        primary_config = {
+            "output_directory": "Albums",
+            "audio_quality": "320k",
+            "audio_format": "mp3",
+            "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
+            "max_retries": MAX_RETRIES,
+            "retry_delay": RETRY_DELAY,
+            "download_timeout": DOWNLOAD_TIMEOUT
+        }
 
-    # Logger Functions -----------------------------------------------------------------
+        try:
+            if os.path.exists(self.__configuration_file):
+                with open(self.__configuration_file, 'r') as f:
+                    user_config = json.load(f)
+                    config = {**primary_config, **user_config}
+            else:
+                config = primary_config
+                self.save_config(config)
+                
+            # Apply configuration
+            self.__output_directory = Path(config["output_directory"])
+            self.__audio_quality = config["audio_quality"]
+            self.__audio_format = config["audio_format"]
+            self.__parallel_downloads = config["max_parallel_downloads"]
+        
+        except Exception as e:
+            self.log_error(f"Error loading configuration")
+            # Use defaults
+            self.__output_directory = Path(primary_config["output_dir"])
+            self.__audio_quality = primary_config["audio_quality"]
+            self.__audio_format = primary_config["audio_format"]
+        
+        
+    def save_configuration(self, config: Dict = None):
+        """Save configuration to file"""
+        try:
+            if config is None:
+                config = {
+                    "output_dir": str(self.__output_dir),
+                    "audio_quality": self.__audio_quality,
+                    "audio_format": self.__audio_format,
+                    "max_parallel_downloads": self.__parallel_downloads,
+                    "max_retries": MAX_RETRIES,
+                    "retry_delay": RETRY_DELAY,
+                    "download_timeout": DOWNLOAD_TIMEOUT
+                }
+            
+            with open(self.__config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+                
+        except Exception as e:
+            self.log_error(f"Error saving configuration: {e}")
+            
+    # =============================================  Logger Functions ===========================================
     def log_success(self, message: str):
         """Logs only successful downloads (to success log)"""
         success_downloads.info(message)
@@ -147,11 +206,8 @@ class Youtube_Downloader:
         """Logs only error in download process (to error log)"""
         error_downloads.error(message, exc_info=exc_info)
         console_logger.error(f"{message}")
-        
-    def log_warning(self, message: str):
-        console_logger.warning(f"{message}")
      
-    # Preference getters & helper functions ------------------------------------------------
+    #  ============================================= Helper Functions  =============================================
     def get_user_preferences(self):
         """Takes in user input for the download settings"""
         
@@ -182,11 +238,11 @@ class Youtube_Downloader:
         # Handle choice of output directory
         output_path = input("Enter output directory (default: Albums): ").strip()
         if output_path:
-            self.__output_dir = Path(output_path)
+            self.__output_directory = Path(output_path)
         else:
             self.__output_dir = Path("Albums")
             
-        self.__output_dir.mkdir(parents=True, exist_ok=True)
+        self.__output_directory.mkdir(parents=True, exist_ok=True)
     
     def validate_youtube_url(self, url: str) -> bool:
         """Validate if the URL input is a proper YouTube URL"""
@@ -236,6 +292,8 @@ class Youtube_Downloader:
                 return match.group(1)
         return None
 
+
+    #  ============================================= Helper Functions  =============================================
     def resource_validation(self, url: str) -> Tuple[bool, str, Optional[Dict]]:
         """Validate if a resource is available before downloading to the device"""
         
@@ -287,9 +345,9 @@ class Youtube_Downloader:
     def run_download(self, url: str, output_template: str, progress_tracker: LiveProgressTracker = None, additional_args=None):
         """Run yt-dlp download with modern syntax"""
         # Ensure output directory exists
-        output_dir = os.path.dirname(output_template)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
+        output_directory = os.path.dirname(output_template)
+        if output_directory:
+            os.makedirs(output_directory, exist_ok=True)
         
         command = [
             "yt-dlp",
@@ -451,7 +509,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Track download: {url}. This may take a few minutes...")
         start_time = time.time()
-        output_template = str(self.__output_dir/"%(title)s.%(ext)s")
+        output_template = str(self.__output_directory/"%(title)s.%(ext)s")
             
         for attempt in range(1, MAX_RETRIES + 1):
             print(f"{'='*50}")
@@ -507,7 +565,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Album download. This may take a few minutes...")
         start_time = time.time()
-        output_template = str(self.__output_dir / "%(artist)s/%(album)s/%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(artist)s/%(album)s/%(title)s.%(ext)s")
         
         for attempt in range(1, MAX_RETRIES + 1):
             print(f"{'='*50}")
@@ -563,7 +621,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Playlist download. This may take a few minutes...")
         start_time = time.time()
-        output_template = str(self.__output_dir / "%(playlist)s/%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(playlist)s/%(title)s.%(ext)s")
         
         for attempt in range(1, MAX_RETRIES + 1):
             print(f"{'='*50}")
@@ -643,13 +701,13 @@ class Youtube_Downloader:
             
             # Determine output template based on URL type
             if "playlist" in url.lower():
-                output_template = str(self.__output_dir / "Playlists" / "%(playlist)s" / "%(title)s.%(ext)s")
+                output_template = str(self.__output_directory / "Playlists" / "%(playlist)s" / "%(title)s.%(ext)s")
                 additional_args = None
             elif "album" in url.lower():
-                output_template = str(self.__output_dir / "Albums" / "%(artist)s" / "%(album)s" / "%(title)s.%(ext)s")
+                output_template = str(self.__output_directory / "Albums" / "%(artist)s" / "%(album)s" / "%(title)s.%(ext)s")
                 additional_args = None
             else:
-                output_template = str(self.__output_dir / "Tracks" / "%(title)s.%(ext)s")
+                output_template = str(self.__output_directory / "Tracks" / "%(title)s.%(ext)s")
                 additional_args = None
             
             success = False
@@ -724,7 +782,7 @@ class Youtube_Downloader:
         search_time = time.time()
         print("Searching for the song. Browsing through YouTube...")
         
-        output_template = str(self.__output_dir/ "%(title)s.%(ext)s")
+        output_template = str(self.__output_directory/ "%(title)s.%(ext)s")
         
         for attempt in range(1, MAX_RETRIES + 1):
             print("="*50)
@@ -815,7 +873,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Channel download. This may take a VERY long time...")
         start_time = time.time()
-        output_template = str(self.__output_dir / "Channels" / "%(channel)s" / "%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "Channels" / "%(channel)s" / "%(title)s.%(ext)s")
         
         # Use yt-dlp with channel download options
         additional_args = [
