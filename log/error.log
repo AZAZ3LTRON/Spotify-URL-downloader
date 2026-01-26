@@ -14,3 +14,4 @@ WARNING: [youtube:tab] YouTube
 WARNING: [youtube] 8zSODUOoE8w: Some web 
 2026-01-25 14:54:46,010 - ERROR - log_error - Command errors: WARNING: [youtube:tab] YouTube Music is not directly supported. Redirecting to https://www.youtube.com/playlist?list=OLAK5uy_nMi553Un-V3VCacIvHuLPUgXfEdPmHaP8
 WARNING: [youtube] 8zSODUOoE8w: Some web 
+2026-01-25 16:00:42,842 - ERROR - log_error - Command errors: WARNING: [youtube] sfRCnQH4c-I: Some web client https formats have been skipped as they are missing a url. YouTube is forcing SABR streaming for this client. See  https://github.com/yt-dlp/yt-dlp/issu

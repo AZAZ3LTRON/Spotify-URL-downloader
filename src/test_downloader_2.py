@@ -257,9 +257,34 @@ class Youtube_Downloader:
                     title = metadata.get('title', 'Unknown')
                     duration = metadata.get('duration', 0)
                     
-                    if metadata.get('availability')
-    
-    def run_download(self, url: str, output_template: str, additional_args=None):
+                    if metadata.get('availability') == 'unavailable':
+                        return False, "Video unavailable", metadata
+                    
+                    return True, f" Available", metadata
+                
+                except json.JSONDecodeError:
+                    return True, "Music Resource Available - Complication in Metadata", None
+                
+            else:
+                # Handles errors when locating the resource
+                error_message = result.stderr.lower
+                if "unavailable" in error_message:
+                    return False, "Resource unavailable", None
+                elif "private" in error_message:
+                    return False, "Restricted Access", None
+                elif "age restriction" in error_message:
+                    return False, "Age restricted video", None
+                elif "not found" in error_message:
+                    return False, "Resource not found", None
+                else:
+                    return False, f"Validation failed: {error_message[:100]}", None
+
+        except subprocess.TimeoutExpired:
+            return False, "Validation timeout", None
+        except Exception as e:
+            return False, f"Validation error: {str(e)[:100]}", None
+            
+    def run_download(self, url: str, output_template: str, progress_tracker: LiveProgressTracker = None, additional_args=None):
         """Run yt-dlp download with modern syntax"""
         # Ensure output directory exists
         output_dir = os.path.dirname(output_template)
@@ -275,8 +300,15 @@ class Youtube_Downloader:
             "--no-overwrites",  # Skip if file exists
             "--add-metadata",  # Add metadata
             "--embed-thumbnail",  # Embed thumbnail if available
+            "--newline", # Progress parsing
+            "--progress", # Show progress
+            "--console-title" # Update console title with progress
             "--quiet"  # Reduce output noise
         ]
+        
+        # Add progress hook if tracker is provided
+        if progress_tracker:
+            command.extend(["--progress-template", "download:%(progress.status)s:%(progress._percent_str)s:%(progress._speed_str)s:%(progress._eta_str)s"])
         
         if additional_args:
             if isinstance(additional_args, list):
@@ -292,16 +324,41 @@ class Youtube_Downloader:
                 stdout=sys.stdout,
                 stderr=subprocess.PIPE,
                 text=True,
+                bufsize=1,
+                universal_newlines=True,
                 timeout=DOWNLOAD_TIMEOUT,
                 check=True
             )
+            
+            output_lines = []
+                
+            for line in result.stdout:
+                output_lines.append(line.strip())
+                
+                if progress_tracker and line.startswith("download:"):
+                    try:
+                        parts = line.strip().split(":")
+                        if len(parts) >= 5:
+                            status = parts[1]
+                            percent = parts[2].strip('%') if parts[2] != 'None' else '0'
+                            speed = parts[3] if parts[3] != 'None' else 'N/A'
+                            eta = parts[4] if parts[4] != 'None' else 'N/A'
+                            
+                            progress_tracker.progress_data.update({
+                                "status": status,
+                                "percent": percent,
+                                "speed": speed,
+                                "eta": eta
+                            })
+                    except:
+                        pass
             
             if result.stdout:
                 self.log_success(f"Command output: {result.stdout[:200]}")
             if result.stderr:
                 self.log_error(f"Command errors: {result.stderr[:200]}")
             return result
-        
+ 
         except subprocess.CalledProcessError as e:
             stderr = e.stderr or ""
             # Error Handling for specific errors during download process

@@ -1,0 +1,9 @@
+{
+  "output_dir": "Albums",
+  "audio_quality": "320k",
+  "audio_format": "mp3",
+  "max_parallel_downloads": 3,
+  "max_retries": 3,
+  "retry_delay": 10,
+  "download_timeout": 120
+}
