@@ -114,6 +114,7 @@ console_stream_handler.setFormatter(log_format)
 console_logger.addHandler(console_stream_handler)
 
 """ =========================================== The Downloader Class =========================================== """
+
 class Youtube_Downloader:
     def __init__(self):
         """
@@ -125,14 +126,74 @@ class Youtube_Downloader:
         
         The values here are set to default and can be changed later to fit your preference 
         """
-        self.__output_dir = Path("Albums")
+        self.__output_directory = Path("Albums")
         self.__audio_quality = "320k"
         self.__audio_format = "mp3"
         self.__filepath = r"links/youtube_links.txt"
+        self.__configuration_file = "downloader_config.json"
         self.__ytdlp_version = None
         self.__parallel_downloads = MAX_PARALLEL_DOWNLOADS
 
-    # Logger Functions -----------------------------------------------------------------
+        try:
+            self.load_config()
+        except:
+            pass
+        
+    # ============================================= Configuration Managers ===========================================
+    def load_config(self):
+        """Load configuration from json file"""
+        primary_config = {
+            "output_directory": "Albums",
+            "audio_quality": "320k",
+            "audio_format": "mp3",
+            "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
+            "max_retries": MAX_RETRIES,
+            "retry_delay": RETRY_DELAY,
+            "download_timeout": DOWNLOAD_TIMEOUT
+        }
+
+        try:
+            if os.path.exists(self.__configuration_file):
+                with open(self.__configuration_file, 'r') as f:
+                    user_config = json.load(f)
+                    config = {**primary_config, **user_config}
+            else:
+                config = primary_config
+                self.save_config(config)
+                
+            # Apply configuration
+            self.__output_directory = Path(config["output_directory"])
+            self.__audio_quality = config["audio_quality"]
+            self.__audio_format = config["audio_format"]
+            self.__parallel_downloads = config["max_parallel_downloads"]
+        
+        except Exception as e:
+            self.log_error(f"Error loading configuration")
+            # Use defaults
+            self.__output_directory = Path(primary_config["output_directory"])
+            self.__audio_quality = primary_config["audio_quality"]
+            self.__audio_format = primary_config["audio_format"]     
+        
+    def save_config(self, config: Dict = None):
+        """Save configuration to file"""
+        try:
+            config = {
+                "output_dir": str(self.__output_dir),
+                "audio_quality": self.__audio_quality,
+                "audio_format": self.__audio_format,
+                "max_parallel_downloads": self.__parallel_downloads,
+                "max_retries": MAX_RETRIES,
+                "retry_delay": RETRY_DELAY,
+                "download_timeout": DOWNLOAD_TIMEOUT
+            }
+            
+            with open(self.__config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+                
+        except Exception as e:
+            self.log_error(f"Error saving configuration: {e}")
+            
+    # ============================================= Logger Functions ===========================================
     def log_success(self, message: str):
         """Logs only successful downloads (to success log)"""
         success_downloads.info(message)
@@ -147,11 +208,8 @@ class Youtube_Downloader:
         """Logs only error in download process (to error log)"""
         error_downloads.error(message, exc_info=exc_info)
         console_logger.error(f"{message}")
-        
-    def log_warning(self, message: str):
-        console_logger.warning(f"{message}")
      
-    # Preference getters & helper functions ------------------------------------------------
+    #  ============================================= Helper Functions & Resource Validation Functions =============================================
     def get_user_preferences(self):
         """Takes in user input for the download settings"""
         
@@ -182,11 +240,11 @@ class Youtube_Downloader:
         # Handle choice of output directory
         output_path = input("Enter output directory (default: Albums): ").strip()
         if output_path:
-            self.__output_dir = Path(output_path)
+            self.__output_directory = Path(output_path)
         else:
-            self.__output_dir = Path("Albums")
+            self.__output_directory = Path("Albums")
             
-        self.__output_dir.mkdir(parents=True, exist_ok=True)
+        self.__output_directory.mkdir(parents=True, exist_ok=True)
     
     def validate_youtube_url(self, url: str) -> bool:
         """Validate if the URL input is a proper YouTube URL"""
@@ -208,6 +266,22 @@ class Youtube_Downloader:
                 except:
                     continue
         return False
+    
+    def cleanup_directory(self):
+        """Removes empty directories after download"""
+        removed_count = 0
+        for root, dirs, files in os.walk(self.__output_directory, topdown=False):
+            for dir_name in dirs:
+                dir_path = os.path.join(root, dir_name)
+                try:
+                    if not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                        removed_count += 1
+                except OSError:
+                    pass
+                
+        if removed_count > 0:
+            self.log_success("Cleaned up empty directories")
     
     def get_resource_type(self, url: str):
         """Determine the type of Youtube Music Resource is provided"""
@@ -257,14 +331,77 @@ class Youtube_Downloader:
                     title = metadata.get('title', 'Unknown')
                     duration = metadata.get('duration', 0)
                     
-                    if metadata.get('availability')
+                    if metadata.get('availability') == 'unavailable':
+                        return False, "Video unavailable", metadata
+                    
+                    return True, f" Available", metadata
+                
+                except json.JSONDecodeError:
+                    return True, "Music Resource Available - Complication in Metadata", None
+                
+            else:
+                # Handles errors when locating the resource
+                error_message = result.stderr.lower
+                if "unavailable" in error_message:
+                    return False, "Resource unavailable", None
+                elif "private" in error_message:
+                    return False, "Restricted Access", None
+                elif "age restriction" in error_message:
+                    return False, "Age restricted video", None
+                elif "not found" in error_message:
+                    return False, "Resource not found", None
+                else:
+                    return False, f"Validation failed: {error_message[:100]}", None
+
+        except subprocess.TimeoutExpired:
+            return False, "Validation timeout", None
+        except Exception as e:
+            return False, f"Validation error: {str(e)[:100]}", None
     
+    def parse_size(self, size_str: str) -> Optional[int]:
+        """Parse size string to bytes"""
+        if not size_str:
+            return None
+        
+        size_str = size_str.strip().upper()
+        units = {
+        'B': 1,
+        'K': 1024,
+        'M': 1024**2,
+        'G': 1024**3,
+        'T': 1024**4,
+        'KB': 1024,
+        'MB': 1024**2,
+        'GB': 1024**3,
+        'TB': 1024**4,
+        'KIB': 1024,
+        'MIB': 1024**2,
+        'GIB': 1024**3,
+        'TIB': 1024**4           
+        }
+        
+        match = re.match(r'([\d\.]+)\s*(\w*)', size_str)
+        if not match:
+            return None
+        
+        value, unit = match.groups()
+        try:
+            value = float(value)
+            if not unit:
+                return int(value)
+            if unit in units:
+                return int(value * units[unit])
+        except ValueError:
+            return None
+        return None
+      
+# Fix the run_download method's progress bar section:
     def run_download(self, url: str, output_template: str, additional_args=None):
-        """Run yt-dlp download with modern syntax"""
+        """Run yt-dlp download with modern syntax & tqdm progress bar"""
         # Ensure output directory exists
-        output_dir = os.path.dirname(output_template)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
+        output_directory = os.path.dirname(output_template)
+        if output_directory:
+            os.makedirs(output_directory, exist_ok=True)
         
         command = [
             "yt-dlp",
@@ -272,10 +409,13 @@ class Youtube_Downloader:
             "--audio-format", self.__audio_format,
             "--audio-quality", self.__audio_quality,
             "-o", output_template,
-            "--no-overwrites",  # Skip if file exists
-            "--add-metadata",  # Add metadata
-            "--embed-thumbnail",  # Embed thumbnail if available
-            "--quiet"  # Reduce output noise
+            "--no-overwrites",
+            "--add-metadata",
+            "--embed-thumbnail",
+            "--newline",
+            "--progress",
+            "--console-title",
+            "--quiet"
         ]
         
         if additional_args:
@@ -287,75 +427,107 @@ class Youtube_Downloader:
         command.append(url)
         
         try:
-            result = subprocess.run(
-                command,
-                stdout=sys.stdout,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=DOWNLOAD_TIMEOUT,
-                check=True
+            # Initialize progress bar
+            progress_bar = tqdm(
+                desc="Downloading",
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+                leave=False,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
             )
             
-            if result.stdout:
-                self.log_success(f"Command output: {result.stdout[:200]}")
-            if result.stderr:
-                self.log_error(f"Command errors: {result.stderr[:200]}")
-            return result
-        
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr or ""
-            # Error Handling for specific errors during download process
-            # ------------ NON -RETRYABLE ERRORS ------------
-            if "This video is unavailable" in stderr or "Private video" in stderr:
-                self.log_error(f"{url} - Video unavailable")
-                # Mark as non-retryable by returning a special object
-                return type('obj', (object,), {
-                    'returncode': 404,  # Custom return code for non-retryable
-                    'stdout': e.stdout,
-                    'stderr': stderr
-                })()
+            # Start the subprocess
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
             
-            if "Sign in to confirm your age" in stderr:
-                self.log_error(f"{url} - Age restriction")
-                # Mark as non-retryable
-                return type('obj', (object,), {
-                    'returncode': 402,  # Custom return code for age restriction
-                    'stdout': e.stdout,
-                    'stderr': stderr
-                })()
+            # Parse output in real-time
+            for line in iter(process.stdout.readline, ''):
+                line = line.strip()
+                
+                if "[download]" in line:
+                    try:
+                        # Parse percentage
+                        percent_match = re.search(r'(\d+\.?\d*)%', line)
+                        percent = float(percent_match.group(1)) if percent_match else 0
+                        
+                        # Parse total size
+                        size_match = re.search(r'of\s+([\d\.]+\s*[KMGT]?i?B)', line)
+                        if size_match and progress_bar.total is None:
+                            total_str = size_match.group(1)
+                            total_bytes = self._parse_size_to_bytes(total_str)
+                            if total_bytes:
+                                progress_bar.total = total_bytes
+                        
+                        # Parse downloaded size
+                        downloaded_match = re.search(r'([\d\.]+\s*[KMGT]?i?B)\s+at', line) or \
+                                        re.search(r'([\d\.]+\s*[KMGT]?i?B)\s+ETA', line) or \
+                                        re.search(r'([\d\.]+\s*[KMGT]?i?B)\s*\/', line)
+                        if downloaded_match:
+                            downloaded_str = downloaded_match.group(1)
+                            downloaded_bytes = self._parse_size_to_bytes(downloaded_str)
+                            if downloaded_bytes:
+                                progress_bar.n = downloaded_bytes
+                        
+                        # Parse download speed
+                        speed_match = re.search(r'at\s+([\d\.]+\s*[KMGT]?i?B/s)', line)
+                        speed = speed_match.group(1) if speed_match else "0 B/s"
+                        
+                        # Parse ETA
+                        eta_match = re.search(r'ETA\s+([\d:]+)', line)
+                        eta = eta_match.group(1) if eta_match else "--:--"
+                        
+                        # Update progress bar
+                        progress_bar.set_description(f"Downloading: {percent:.1f}%" if percent_match else "Downloading")
+                        progress_bar.set_postfix_str(f"Speed: {speed}, ETA: {eta}")
+                        progress_bar.refresh()
+                        
+                    except Exception:
+                        continue
+                
+                if "100%" in line or "already been downloaded" in line:
+                    if progress_bar.total:
+                        progress_bar.n = progress_bar.total
+                    progress_bar.set_description("DOWNLOADED")
+                    progress_bar.set_postfix_str("")
+                    progress_bar.refresh()
+                    break
             
-            if "Video unavailable. This video is private" in stderr:
-                self.log_error(f"{url} - Private video")
-                return type('obj', (object,), {
-                    'returncode': 403,  # Custom return code for private video
-                    'stdout': e.stdout,
-                    'stderr': stderr
-                })()
+            # Wait for process to complete
+            process.wait()
+            progress_bar.close()
             
-            # ------------ RETRYABLE ERRORS ------------
-            if "This video has been removed" in stderr:
-                self.log_error(f"{url} - Video removed")
-                # This will be retried normally since we raise the exception
-            # -------------------------------------------------------------
+            # Get the output
+            stdout, stderr = process.communicate()
             
-            # For other errors, log and return the exception
-            self.log_failure(f"Command failed for {url}: {e}")
-            return e
-
-        except subprocess.TimeoutExpired:
-            self.log_error(f"Download timeout for {url}")
-            return type('obj', (object,), {
-                'returncode': 408,  # Timeout
-                'stdout': '',
-                'stderr': 'Download timeout'        
-            })()
-            
+            if process.returncode == 0:
+                self.log_success(f"Successfully downloaded: {url}")
+                return subprocess.CompletedProcess(
+                    args=command,
+                    returncode=0,
+                    stdout=stdout,
+                    stderr=stderr
+                )
+            else:
+                self.log_failure(f"Download failed for {url} with code {process.returncode}")
+                return subprocess.CalledProcessError(
+                    process.returncode, 
+                    command, 
+                    stdout, 
+                    stderr
+                )
+                
         except Exception as e:
-            self.log_error(f"Unexpected error: {e}")
-            return e
-
-    # Extra functions to rely on (in case of program failure) ----------------------------
-    def rate_limit(calls_per_minute=60):
+            self.log_error(f"Unexpected error in run_download: {e}")
+            raise
+    #  ============================================= Rate Limiter & Batch Processor =============================================
+    def rate_limiter(calls_per_minute=60):
         """Added rate limiter to avoid being blocked"""
         def decorator(func):
             last_called = [0.0]
@@ -370,9 +542,9 @@ class Youtube_Downloader:
                 return func(*args, **kwargs)
             return wrapper
         return decorator
-
-    # Main download functions -----------------------------------------------------------
-    @rate_limit(calls_per_minute=30)
+        
+    #  ============================================= Main Download functions (Improved with Batch Processing) =============================================
+    @rate_limiter(calls_per_minute=30)
     def download_track(self):
         """Download a single track"""
         print("\n" + "="*50)
@@ -394,7 +566,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Track download: {url}. This may take a few minutes...")
         start_time = time.time()
-        output_template = str(self.__output_dir/"%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(title)s.%(ext)s")
             
         for attempt in range(1, MAX_RETRIES + 1):
             print(f"{'='*50}")
@@ -428,7 +600,7 @@ class Youtube_Downloader:
               
         return False
     
-    @rate_limit(calls_per_minute=30)
+    @rate_limiter(calls_per_minute=30)
     def download_album(self):
         """Download an album"""
         print("\n" + "="*50)
@@ -450,7 +622,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Album download. This may take a few minutes...")
         start_time = time.time()
-        output_template = str(self.__output_dir / "%(artist)s/%(album)s/%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(artist)s/%(album)s/%(title)s.%(ext)s")
         
         for attempt in range(1, MAX_RETRIES + 1):
             print(f"{'='*50}")
@@ -485,7 +657,7 @@ class Youtube_Downloader:
         
         return False
     
-    @rate_limit(calls_per_minute=30)
+    @rate_limiter(calls_per_minute=30)
     def download_playlist(self):
         """Download a playlist"""
         print("\n" + "="*50)
@@ -506,7 +678,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Playlist download. This may take a few minutes...")
         start_time = time.time()
-        output_template = str(self.__output_dir / "%(playlist)s/%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(playlist)s/%(title)s.%(ext)s")
         
         for attempt in range(1, MAX_RETRIES + 1):
             print(f"{'='*50}")
@@ -586,13 +758,13 @@ class Youtube_Downloader:
             
             # Determine output template based on URL type
             if "playlist" in url.lower():
-                output_template = str(self.__output_dir / "Playlists" / "%(playlist)s" / "%(title)s.%(ext)s")
+                output_template = str(self.__output_directory / "%(playlist)s%(title)s.%(ext)s")
                 additional_args = None
             elif "album" in url.lower():
-                output_template = str(self.__output_dir / "Albums" / "%(artist)s" / "%(album)s" / "%(title)s.%(ext)s")
+                output_template = str(self.__output_directory / "%(artist)s%(album)s%(title)s.%(ext)s")
                 additional_args = None
             else:
-                output_template = str(self.__output_dir / "Tracks" / "%(title)s.%(ext)s")
+                output_template = str(self.__output_directory / "%(title)s.%(ext)s")
                 additional_args = None
             
             success = False
@@ -667,7 +839,7 @@ class Youtube_Downloader:
         search_time = time.time()
         print("Searching for the song. Browsing through YouTube...")
         
-        output_template = str(self.__output_dir/ "%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(title)s.%(ext)s")
         
         for attempt in range(1, MAX_RETRIES + 1):
             print("="*50)
@@ -727,7 +899,6 @@ class Youtube_Downloader:
 
         return False
 
-    # Special download functions -------------------------------------------------------
     def download_channel(self):
         """Download all videos from a YouTube channel"""
         print("\n" + "="*50)
@@ -758,7 +929,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Channel download. This may take a VERY long time...")
         start_time = time.time()
-        output_template = str(self.__output_dir / "Channels" / "%(channel)s" / "%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "Channels" / "%(channel)s" / "%(title)s.%(ext)s")
         
         # Use yt-dlp with channel download options
         additional_args = [
@@ -794,7 +965,7 @@ class Youtube_Downloader:
         
         return False
 
-    # yt-dlp helpers ----------------------------------------------------------------------------
+    #  ============================================= Yt-dlp Helpers =============================================
     @staticmethod
     def check_ytdlp():
         """
@@ -878,7 +1049,7 @@ class Youtube_Downloader:
         print("* show_ytdlp_help - Provides context on yt-dlp commands")
         print("="*80)
 
-""" The downloader """
+""" =========================================== Main Caller =========================================== """
 def display_menu() -> None:
     """Display the main menu."""
     menu = """
