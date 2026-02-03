@@ -742,7 +742,10 @@ class InfoPage(PageWidget):
         
     def setup_ui(self):
         layout = QVBoxLayout()
-        label = QLabel("Info Page - Coming Soon")
+        label = QLabel("""
+            This program provides 
+                       """)
+        label = QLabel("For more information on the program, please visit: https://github.com/AZAZ3LTRON/Music-URL-downloader.git ", setAlignment = "Left")
         label.setStyleSheet("color: white; font-size: 24px;")
         label.setAlignment(Qt.AlignCenter)
         layout.addWidget(label)
