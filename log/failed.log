@@ -1,5 +1,8 @@
-2026-01-27 13:39:22,873 - INFO - log_failure - Failed to download after 3 attempts: https://music.youtube.com/watch?v=zbSjDVcZA2o
-2026-02-03 11:28:18,640 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=3dbRdzATXBE&si=CsybZ-7QyHXmLkq6 with code 1
-2026-02-03 11:28:33,041 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=3dbRdzATXBE&si=CsybZ-7QyHXmLkq6 with code 1
-2026-02-03 11:28:47,437 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=3dbRdzATXBE&si=CsybZ-7QyHXmLkq6 with code 1
-2026-02-03 11:28:47,438 - INFO - log_failure - Failed to download after 3 attempts: https://music.youtube.com/watch?v=3dbRdzATXBE&si=CsybZ-7QyHXmLkq6
+2026-02-03 22:31:49,596 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
+2026-02-03 22:32:01,676 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
+2026-02-03 22:32:13,791 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
+2026-02-03 22:32:13,791 - INFO - log_failure - Failed to download after 3 attempts: https://music.youtube.com/watch?v=215T8NF93kw
+2026-02-03 22:43:40,426 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
+2026-02-03 22:43:52,680 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
+2026-02-03 22:44:10,585 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
+2026-02-03 22:44:10,586 - INFO - log_failure - Failed to download after 3 attempts: https://music.youtube.com/watch?v=215T8NF93kw
