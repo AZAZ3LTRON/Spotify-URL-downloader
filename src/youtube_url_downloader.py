@@ -22,12 +22,11 @@ Now Improved with
 - Batch Processing (with parallel downloads)
 - Resource Validation (Check if links are available)
 
-Note: Please use the latest version of YT-DLP, uograde it using "pip install --upgrade yt-dlp" or "yt-dlp -U" depending on how you installed it
-
+Note: Please use the latest version of YT-DLP, upgrade it using "pip install --upgrade yt-dlp" or "yt-dlp -U" depending on how you installed it
+Additionally make sure ffmpeg is installed, as that is necessary to parse the music file's metadata if not you will receive postprocessing error in your output
 
 Enjoy!
 """
-
 import sys
 import os  # For directory creation
 import subprocess  # To run the yt-dlp in the background
@@ -41,7 +40,7 @@ import urllib.parse
 from typing import List, Dict, Optional, Tuple
 import json
 from tqdm import tqdm
-
+import browser_cookie3
 
 """ =========================================== Pre Config ===========================================
 This part of the pre-configuration of the downloader, it can be change. Each part is explained below:
@@ -58,9 +57,13 @@ ERROR_LOG = r"log\error.log"
 MAX_RETRIES = 3
 RETRY_DELAY = 10
 DOWNLOAD_TIMEOUT = 120
-MAX_PARALLEL_DOWNLOADS = 4 # For parallel downloading
+COOKIE_DIRECTORY = r"cookies\cookies"
+COOKIE_TEMP_DIR = r"cookies\temp_cookies"
 
 os.makedirs("log", exist_ok=True)
+os.makedirs(COOKIE_DIRECTORY, exist_ok=True)
+os.makedirs(COOKIE_TEMP_DIR, exist_ok=True)
+
 
 """==== Logger: Initialize the log files before write ==== """
 # Basic Logger info
@@ -109,42 +112,54 @@ console_stream_handler.setLevel(logging.INFO)
 console_stream_handler.setFormatter(log_format)
 console_logger.addHandler(console_stream_handler)
 
-""" =========================================== The Downloader Class =========================================== """
 
+class CookieManager:
+    """ Manages cookies for Youtube authentication"""
+    def __init__(self):
+        self.cookie_directory = Path(COOKIE_DIRECTORY)
+        self.temp_directory = Path(COOKIE_TEMP_DIR)
+        self.current_cookie_file = None
+        self.cookie_sources = {
+            'chrome': browser_cookie3.chrome,
+            'firefox': browser_cookie3.firefox,
+            'edge': browser_cookie3.edge, 
+            'opera': browser_cookie3.opera,
+            'opera_gx': browser_cookie3.opera_gx,
+            'brave': browser_cookie3.brave,
+            'safari': browser_cookie3.safari
+        }
+
+    
+    
+""" =========================================== The Downloader Class =========================================== """
 class Youtube_Downloader:
     def __init__(self):
-        """
-        Initialize the downloader with default values
-        """
+        """ Initialize the downloader with default values """
         self.__output_directory = Path("Albums")
         self.__audio_quality = "320k"
         self.__audio_format = "mp3"
         self.__filepath = r"links/youtube_links.txt"
         self.__configuration_file = "downloader_config.json"
-        self.__ytdlp_version = None
-        self.__parallel_downloads = MAX_PARALLEL_DOWNLOADS
 
+        self.__output_directory.mkdir(parents=True, exist_ok=True)
+        Path("links").mkdir(parents=True, exist_ok=True)
+        Path("log").mkdir(parents=True, exist_ok=True)
+        
         try:
             self.load_config()
-        except:
-            pass
+        except Exception as e:
+            self.log_error(f"Error loading config: {e}")
         
     # ============================================= Configuration Managers ===========================================
     def load_config(self):
         """Load configuration from json file"""
         primary_config = {
-            f"--audio-format=mp3",  
-            f"--audio-quality=320k", 
-            f"--output={self.__output_directory}", 
-            "--no-overwrites",
-            "--no-post-overwrites",  # Prevent post-processing conflicts
-            "--retries", MAX_RETRIES,
-            "--fragment-retries", "3",
-            "--socket-timeout", "30",
-            "--progress",
-            "--progress-template", "download:[download][progress]",
-            "--console-title",
-            "--newline"
+            "output_directory": "Albums",
+            "audio_quality": "320k",
+            "audio_format": "mp3",
+            "max_retries": MAX_RETRIES,
+            "retry_delay": RETRY_DELAY,
+            "download_timeout": DOWNLOAD_TIMEOUT
             }
 
         try:
@@ -155,12 +170,14 @@ class Youtube_Downloader:
             else:
                 config = primary_config
                 self.save_config(config)
-                
-            # Apply configuration
-            self.__output_directory = Path(config["output_directory"])
-            self.__audio_quality = config["audio_quality"]
-            self.__audio_format = config["audio_format"]
-            self.__parallel_downloads = config["max_parallel_downloads"]
+
+            # Apply configuration safely
+            if "output_directory" in config:
+                self.__output_directory = Path(config["output_directory"])
+            if "audio_quality" in config:
+                self.__audio_quality = config["audio_quality"]
+            if "audio_format" in config:
+                self.__audio_format = config["audio_format"]
         
         except Exception as e:
             self.log_error(f"Error loading configuration: {e}")
@@ -177,7 +194,6 @@ class Youtube_Downloader:
                     "output_directory": str(self.__output_directory),
                     "audio_quality": self.__audio_quality,
                     "audio_format": self.__audio_format,
-                    "max_parallel_downloads": self.__parallel_downloads,
                     "max_retries": MAX_RETRIES,
                     "retry_delay": RETRY_DELAY,
                     "download_timeout": DOWNLOAD_TIMEOUT
@@ -204,15 +220,10 @@ class Youtube_Downloader:
         """Logs only error in download process (to error log)"""
         error_downloads.error(message, exc_info=exc_info)
         console_logger.error(f"{message}")
-        
-    def log_warning(self, message: str):
-        """Log warning messages"""
-        console_logger.warning(f"{message}")
-     
+             
     #  ============================================= Helper Functions & Resource Validation Functions =============================================
     def get_user_preferences(self):
         """Takes in user input for the download settings"""
-        
         # Handle choice of bitrate/audio quality inputs
         while True:
             audio_quality_input = input("What bitrate would you like (8k-320k, default: 320k): ").strip().lower()
@@ -224,7 +235,7 @@ class Youtube_Downloader:
                                 "80k", "96k", "112k", "128k", "160k", "192k", "224k", "256k", "320k"]:
                 self.__audio_quality = audio_quality_input
                 break
-            print("Invalid bitrate. Please choose from the specified values.")
+            print("Invalid bitrate. The downloader support values the following values 8k, 16k, 24k, 32k, 40k, 48k, 64k, 80k, 96k, 112k, 128k, 160k ,192k, 224k and more.")
             
         # Handles choice of audio format
         while True:
@@ -235,7 +246,7 @@ class Youtube_Downloader:
             if audio_format_input in ["mp3", "flac", "ogg", "opus", "m4a", "wav"]:
                 self.__audio_format = audio_format_input
                 break
-            print("Invalid format. Please choose from the specified formats.")
+            print("Invalid format. Your poosible choice are:- mp3, flac, ogg, opus, m4a, wav.")
             
         # Handle choice of output directory
         output_path = input("Enter output directory (default: Albums): ").strip()
@@ -248,7 +259,6 @@ class Youtube_Downloader:
     
     def validate_youtube_url(self, url: str) -> bool:
         """Validate if the URL input is a proper YouTube URL"""
-        
         youtube_patterns = [
             r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$',
             r'^(https?://)?music\.youtube\.com/.+$',
@@ -267,55 +277,6 @@ class Youtube_Downloader:
                     continue
         return False
     
-    def validate_links_file(self):
-        """Validate all links in the file before downloading"""
-        filepath = input("Enter the path to the links file (default: links/youtube_links.txt): ").strip()
-        if not filepath:
-            filepath = self.__filepath
-            
-        if not os.path.exists(filepath):
-            print(f"File not found: {filepath}")
-            return False
-        
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                links = [line.strip() for line in f if line.strip()]
-        except Exception as e:
-            print(f"Error reading file: {e}")
-            return False
-        
-        if not links:
-            print("No links found in file")
-            return False
-        
-        print(f"\nValidating {len(links)} links...")
-        valid_links = []
-        invalid_links = []
-        
-        with tqdm(total=len(links), desc="Validating") as pbar:
-            for link in links:
-                clean_link = link.split('#')[0].strip()
-                if clean_link:  # Skip empty lines
-                    is_valid, message, _ = self.resource_validation(clean_link)
-                    if is_valid:
-                        valid_links.append(clean_link)
-                    else:
-                        invalid_links.append((clean_link, message))
-                pbar.update(1)
-        
-        print(f"\nValidation Results:")
-        print(f"Valid: {len(valid_links)}")
-        print(f"Invalid: {len(invalid_links)}")
-        
-        if invalid_links:
-            print("\nInvalid Links:")
-            for link, reason in invalid_links[:10]:  # Show first 10
-                print(f"  - {link}: {reason}")
-            if len(invalid_links) > 10:
-                print(f"  ... and {len(invalid_links) - 10} more")
-        
-        return len(invalid_links) == 0
-
     def cleanup_directory(self):
         """Removes empty directories after download"""
         removed_count = 0
@@ -458,19 +419,24 @@ class Youtube_Downloader:
         
         command = [
             "yt-dlp",
-            "--extract-audio",
-            f"--audio-format={self.__audio_format}",  # New format for 2026+
-            f"--audio-quality={self.__audio_quality}",  # New format for 2026+
-            f"--output={output_template}",  # New format for 2026+
+            "-x",
+            "--audio-format", self.__audio_format,  
+            "--audio-quality", self.__audio_quality,  
+            "-o", output_template,
             "--no-overwrites",
-            "--no-post-overwrites",  # Prevent post-processing conflicts
-            "--retries", "3",
-            "--fragment-retries", "3",
-            "--socket-timeout", "30",
-            "--progress",
-            "--progress-template", "download:[download][progress]",
-            "--console-title",
+            "--add-metadata",
+            "--embed-thumbnail",
             "--newline",
+            "--progress",
+            "--console-title",
+            "--quiet",
+            "--no-warnings",
+            "--ignore-errors",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--buffer-size", "16K",
+            "--http-chunk-size", "10M",
+            "--extractor-args", "youtube:player_client=android",
         ]
         
         if additional_args:
@@ -501,21 +467,13 @@ class Youtube_Downloader:
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
+                encoding='utf-8',
+                errors='replace'
             )
-            
-            download_complete = False
-            error_detected = False
-            error_message = ""
             
             # Parse output in real-time
             for line in iter(process.stdout.readline, ''):
                 line = line.strip()
-                
-                # Check for error messages
-                if "ERROR" in line or "error" in line.lower():
-                    error_detected = True
-                    error_message = line
-                    self.log_warning(f"Download error detected: {line}")
                 
                 if "[download]" in line:
                     try:
@@ -557,7 +515,7 @@ class Youtube_Downloader:
                         
                         progress_bar.refresh()
                         
-                    except Exception as e:
+                    except Exception:
                         continue
                 
                 if "100%" in line or "already been downloaded" in line or "[Merger]" in line:
@@ -566,21 +524,20 @@ class Youtube_Downloader:
                     progress_bar.set_description("DOWNLOADED")
                     progress_bar.set_postfix_str("")
                     progress_bar.refresh()
-                    time.sleep(0.1)  # Give time for final update
-                    download_complete = True
-                
-                # Check for specific completion messages
-                if "Deleting original file" in line or "Post-process file" in line:
-                    download_complete = True
+                    break
             
             # Wait for process to complete
             process.wait()
-            progress_bar.close()
+            stdout, stderr = process.communicate()
             
-            # Get any remaining output
-            stdout, _ = process.communicate()
+            if progress_bar:
+                progress_bar.close()
+        
             
-            if process.returncode == 0 and not error_detected:
+            # Check for common errors in stderr
+            error_output = stderr.strip() if stderr else ""
+            
+            if process.returncode == 0:
                 self.log_success(f"Successfully downloaded: {url}")
                 return subprocess.CompletedProcess(
                     args=command,
@@ -589,22 +546,64 @@ class Youtube_Downloader:
                     stderr=""
                 )
             else:
-                # Provide more detailed error information
-                error_details = error_message if error_detected else f"Exit code: {process.returncode}"
-                self.log_failure(f"Download failed for {url}: {error_details}")
-                return subprocess.CompletedProcess(
-                    args=command,
-                    returncode=process.returncode,
-                    stdout=stdout,
-                    stderr=error_message
+                # Log detailed error information
+                error_msg = f"Download failed for {url} with code {process.returncode}"
+                
+                # Parse common error messages
+                if "unavailable" in error_output.lower():
+                    error_msg += " - Video is unavailable"
+                elif "private" in error_output.lower():
+                    error_msg += " - Video is private"
+                elif "age restriction" in error_output.lower():
+                    error_msg += " - Age restricted"
+                elif "copyright" in error_output.lower():
+                    error_msg += " - Copyright restriction"
+                elif "format" in error_output.lower():
+                    error_msg += " - Format not available"
+                elif "ffmpeg" in error_output.lower():
+                    error_msg += " - FFmpeg conversion error"
+                elif error_output:
+                    error_msg += f" - Error: {error_output[:200]}"
+                
+                self.log_failure(error_msg)
+                
+                # Return the error
+                return subprocess.CalledProcessError(
+                    process.returncode, 
+                    command, 
+                    stdout, 
+                    stderr
                 )
                 
+        except FileNotFoundError:
+            error_msg = "yt-dlp not found. Please install it with: pip install yt-dlp"
+            self.log_error(error_msg)
+            raise RuntimeError(error_msg)
         except Exception as e:
-            self.log_error(f"Unexpected error in run_download: {e}")
+            error_msg = f"Unexpected error in run_download: {e}"
+            self.log_error(error_msg)
+            if progress_bar:
+                progress_bar.close()
             raise
         
-    #  ============================================= Main Download functions (Improved with Batch Processing) =============================================
+    def rate_limit(calls_per_minute=60):
+        """Rate limit to avoid blockage from """
+        def decorator(func):
+            last_called = [0.0]
+            
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                elapsed_time = time.time() - last_called[0]
+                wait_time = (60.0 / calls_per_minute) - elapsed_time
+                if wait_time > 0:
+                    time.sleep(wait_time)
+                last_called[0] = time.time()
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
     
+    #  ============================================= Main Download functions (Improved with Batch Processing) =============================================
+    @rate_limit(calls_per_minute=30)
     def download_track(self):
         """Download a single track"""
         print("\n" + "="*50)
@@ -673,6 +672,7 @@ class Youtube_Downloader:
               
         return False
     
+    @rate_limit(calls_per_minute=30)
     def download_album(self):
         """Download an album"""
         print("\n" + "="*50)
@@ -741,6 +741,7 @@ class Youtube_Downloader:
         
         return False
     
+    @rate_limit(calls_per_minute=30)
     def download_playlist(self):
         """Download a playlist"""
         print("\n" + "="*50)
@@ -1041,7 +1042,7 @@ class Youtube_Downloader:
         
         return False
 
-    #  ============================================= Yt-dlp Helpers =============================================
+    #  ============================================= Checkers & Yt-DLP Helpers =============================================
     @staticmethod
     def check_ytdlp():
         """
@@ -1076,6 +1077,30 @@ class Youtube_Downloader:
                 return True
             except subprocess.CalledProcessError as e:
                 print(f"Failed to install yt-dlp: {e}")
+                return False
+    
+    @staticmethod
+    def check_ffmpeg():
+        """ Check if ffmpeg is installed"""
+        if shutil.which("ffmpeg"):
+            print("ffmpeg is already installed")
+            
+            # Check version
+            try:
+                result = subprocess.run(
+                    ["ffmpeg", "-version"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=True,
+                    timeout=10
+                )
+                if result.returncode == 0:
+                    version = result.stdout.strip()
+                    print(f"ffmpeg version: {version}")
+                    return True
+            except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.CalledProcessError):
+                print("Could not determine ffmpeg version")
                 return False
     
     @staticmethod     
@@ -1125,7 +1150,90 @@ class Youtube_Downloader:
         print("* show_ytdlp_help - Provides context on yt-dlp commands")
         print("="*80)
 
+    def troubleshooting(self):
+        """Troubleshooting"""
+        print("\n" + "="*50)
+        print("YT-DLP Troubleshooting")
+        print("="*50)
+        
+        # Check if yt-dlp is installed
+        print("Hello, this troubleshooter is to help if you're experiencing problem in the program")
+        print("Running a simple daignostic. This might take a while.....")
+        
+        # Check if yt-dlp is installed
+        print("1. Checking yt-dlp installation...")
+        if not shutil.which("yt-dlp"):
+            print(" yt-dlp not found in PATH")
+            print(" Try: Install yt-dlp by running the command in terminal: pip install yt-dlp")
+            return False
+        else:
+            print("yt-dlp found")
+        
+        try:
+            result = subprocess.run(
+                ["yt-dlp", "--version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            print(f" Version: {result.stdout.strip()}")
+        except:
+            print(" Could not get version") 
 
+        # Check if FFmpeg (needed for audio conversion)
+        print("\n2. Checking FFmpeg...")
+        if not shutil.which("ffmpeg"):
+            print(" FFmpeg not found (audio conversion might fail & errors might occur when retrieving metadata)")
+            print(" Install FFmpeg from: https://ffmpeg.org/download.html")
+        else:
+            print(" FFmpeg found")
+
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-version"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            print(f" Version: {result.stdout.strip()}")
+        except:
+            print(" Could not get version")
+
+        # Test with a simple download
+        print("\n3. Testing download with a known video...")
+        test_url = "https://music.youtube.com/watch?v=215T8NF93kw" 
+        try:
+            # Simple test without conversion
+            test_command = [
+                "yt-dlp",
+                "--skip-download",
+                "--print-json",
+                test_url
+            ]
+            
+            result = subprocess.run(
+                test_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                print("   ✅ Can access YouTube")
+                try:
+                    data = json.loads(result.stdout)
+                    print(f"Test video title: {data.get('title', 'Unknown')[:50]}...")
+                except:
+                    print(" Can access YouTube (metadata parse failed)")
+            else:
+                print(f" Cannot access YouTube: {result.stderr[:100]}")            
+        
+        except Exception as e:
+            print("Test failed.")
+        
 """ =========================================== Main Caller =========================================== """
 def display_menu() -> None:
     """Display the main menu."""
@@ -1142,8 +1250,8 @@ def display_menu() -> None:
     6.  Download YouTube Channel (All Videos)
     7.  Check/Install yt-dlp
     8.  Show yt-dlp Help
-    9.  Show Program Info
-    10. Validate Links in File
+    9.  Check ffmpeg
+    10. Show Program Info
     11. Troubleshoot Download Issue
     12. Exit
     ========================================================================
@@ -1162,7 +1270,7 @@ def main():
     
     if not Youtube_Downloader.check_ytdlp():
         print("="*50)
-        print("\nFailed to install yt-dlp. Please install it manually using:")
+        print("\n Failed to install yt-dlp. Please install it manually using:")
         print("pip install yt-dlp")
         print("Then run the program again.")
         print("="*50)
@@ -1190,9 +1298,9 @@ def main():
             "6": downloader.download_channel,
             "7": Youtube_Downloader.check_ytdlp,
             "8": Youtube_Downloader.show_ytdlp_help,
-            "9": Youtube_Downloader.program_info,
-            "10": downloader.validate_links_file,
-            "11": lambda: downloader.troubleshoot_download(
+            "9": Youtube_Downloader.check_ffmpeg,
+            "10": Youtube_Downloader.program_info,
+            "11": lambda: downloader.troubleshooting(
                 input("Enter URL to troubleshoot: ").strip()
             ) if input("Enter URL to troubleshoot: ").strip() else print("No URL provided")
         }
