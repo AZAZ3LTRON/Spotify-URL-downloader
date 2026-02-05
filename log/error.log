@@ -1,6 +1,0 @@
-2026-02-03 22:31:49,597 - ERROR - log_error - Download failed (attempt 1/3). Error: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:32:01,677 - ERROR - log_error - Download failed (attempt 2/3). Error: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:43:40,437 - ERROR - log_error - Download failed (attempt 1/3). Error: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:43:52,681 - ERROR - log_error - Download failed (attempt 2/3). Error: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 23:09:26,987 - ERROR - log_error - Error loading configuration: 'set' object is not a mapping
-2026-02-03 23:09:56,768 - ERROR - log_error - Error loading configuration: 'set' object is not a mapping

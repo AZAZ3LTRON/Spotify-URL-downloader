@@ -1,8 +1,0 @@
-2026-02-03 22:31:49,596 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:32:01,676 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:32:13,791 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:32:13,791 - INFO - log_failure - Failed to download after 3 attempts: https://music.youtube.com/watch?v=215T8NF93kw
-2026-02-03 22:43:40,426 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:43:52,680 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:44:10,585 - INFO - log_failure - Download failed for https://music.youtube.com/watch?v=215T8NF93kw: ERROR: Postprocessing: Error splitting the argument list: Option not found
-2026-02-03 22:44:10,586 - INFO - log_failure - Failed to download after 3 attempts: https://music.youtube.com/watch?v=215T8NF93kw
