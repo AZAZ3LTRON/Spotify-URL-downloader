@@ -39,6 +39,7 @@ import re  # Regex
 import urllib.parse
 from urllib.parse import urlparse
 from typing import List, Dict, Optional, Tuple
+import threading
 import json
 from tqdm import tqdm
 import browser_cookie3
@@ -117,7 +118,6 @@ console_logger.addHandler(console_stream_handler)
 
 class CookieManager:
     """ Manages cookies for Youtube authentication"""
-    
     def __init__(self):
         self.cookie_directory = Path(COOKIE_DIRECTORY)
         self.current_cookie_file = None
@@ -411,8 +411,7 @@ class CookieManager:
                 print(f"Invalid choice")
             
             input("\nPress Enter to continue...")                
-            
-                
+                          
 class Youtube_Downloader:
     """ Downloader Class that handles the downloading process"""
     def __init__(self):
@@ -515,7 +514,7 @@ class Youtube_Downloader:
         """Takes in user input for the download settings"""
         # Handle choice of bitrate/audio quality inputs
         while True:
-            audio_quality_input = input("What bitrate would you like (8k-320k, default: 320k): ").strip().lower()
+            audio_quality_input = input("What bitrate would you like (8k-320k, default: 320k):- ").strip().lower()
             
             if not audio_quality_input:
                 self.__audio_quality = "320k"
@@ -528,7 +527,7 @@ class Youtube_Downloader:
             
         # Handles choice of audio format
         while True:
-            audio_format_input = input("What format do you wish to download in (mp3, flac, ogg, opus, m4a, wav, default mp3): ").strip().lower()
+            audio_format_input = input("What format do you wish to download in (mp3, flac, ogg, opus, m4a, wav, default mp3):- ").strip().lower()
             if not audio_format_input:
                 self.__audio_format = "mp3"
                 break
@@ -538,7 +537,7 @@ class Youtube_Downloader:
             print("Invalid format. Your poosible choice are:- mp3, flac, ogg, opus, m4a, wav.")
             
         # Handle choice of output directory
-        output_path = input("Enter output directory (default: Albums): ").strip()
+        output_path = input("Enter output directory (default: Albums):- ").strip()
         if output_path:
             self.__output_directory = Path(output_path)
         else:
@@ -547,9 +546,9 @@ class Youtube_Downloader:
         self.__output_directory.mkdir(parents=True, exist_ok=True)  
 
         # Handles choice for cookies
-        print("\n Cookie Settings: ")
+        print("\nCookie Settings:- ")
         print("Cookies can help with age-restricted/region-restricted content.")
-        cookie_choice = input("Use cookies for authentication? (y/n, default n): ").strip().lower()
+        cookie_choice = input("Use cookies for authentication? (y/n, default n):- ").strip().lower()
         if cookie_choice in ['y', 'yes']:
             self.use_cookies = True
             print("Note: Make sure you have used the Cookie Manager to extract the cookies beforehand, if not I recommend you to")
@@ -892,18 +891,25 @@ class Youtube_Downloader:
             raise
         
     def rate_limit(calls_per_minute=60):
-        """Rate limit to avoid blockage from """
+        """Rate limit decorator to avoid blockage from (Improved)"""
         def decorator(func):
             last_called = [0.0]
+            call_lock = threading.Lock()
             
             @wraps(func)
             def wrapper(*args, **kwargs):
-                elapsed_time = time.time() - last_called[0]
-                wait_time = (60.0 / calls_per_minute) - elapsed_time
-                if wait_time > 0:
-                    time.sleep(wait_time)
-                last_called[0] = time.time()
-                return func(*args, **kwargs)
+                with call_lock:
+                    elapsed_time = time.time() - last_called[0]
+                    wait_time = (60.0 / calls_per_minute) - elapsed_time
+                    
+                    if wait_time > 0:
+                        time.sleep(wait_time)
+                    last_called[0] = time.time()
+                    
+                    try:
+                        return func(*args, **kwargs)
+                    except Exception as e:
+                        last_called[0] = time.time() - (60.0/ calls_per_minute)
             return wrapper
         return decorator
     
@@ -946,7 +952,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Track download: {url}. This may take a few minutes...")
         start_time = time.time()
-        output_template = str(self.__output_directory / "%(artist,Unknown Artist)s - %(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(artist)s - %(title)s.%(ext)s")
             
         for attempt in range(1, MAX_RETRIES + 1):
             print(f"{'='*50}")
@@ -1285,7 +1291,7 @@ class Youtube_Downloader:
         search_time = time.time()
         print("Searching for the song. Browsing through YouTube...")
         
-        output_template = str(self.__output_directory / "%(title)s.%(ext)s")
+        output_template = str(self.__output_directory / "%(artist)s - %(title)s.%(ext)s")
         
         for attempt in range(1, MAX_RETRIES + 1):
             print("="*50)
@@ -1344,7 +1350,7 @@ class Youtube_Downloader:
         print("="*50)
         print(f"Starting Channel download. This may take a VERY long time...")
         start_time = time.time()
-        output_template = str(self.__output_directory / "Channels" / "%(channel)s" / "%(title)s.%(ext)s")
+        output_template = str(self.__output_directory/ "%(channel)s/%(artist)s - %(title)s.%(ext)s")
         
         # Use yt-dlp with channel download options
         additional_args = [
@@ -1474,7 +1480,25 @@ class Youtube_Downloader:
             print("\n... (output truncated, use 'yt-dlp --help' for full help)")
         except subprocess.CalledProcessError as e:
             print(f"Could not get yt-dlp help: {e}")
-                 
+    
+    @staticmethod
+    def setup_dependencies():
+        """Automatically install required libraries & dependencies"""
+        dependencies = {
+            'yt-dlp': ['yt-dlp'],
+            'ffmpeg': ['ffmpeg-python'],
+            'browser_cookie3': ['browser_cookie3'],
+            'tqdm': ['tqdm'],
+            'colorama': ['colorama']
+        }
+        
+        for package_name, packages in dependencies.items():
+            try:
+                __import__(package_name)
+            except ImportError:
+                print(f"Installing {package_name}.... ")
+                subprocess.check_call([sys.executable, "-m", "pip", "install"] + packages)
+                              
     def troubleshooting(self):
         """Troubleshooting"""
         print("\n" + "="*50)
